@@ -446,14 +446,12 @@ M68kTargetLowering::LowerMemArgument(SDValue Chain, CallingConv::ID CallConv,
   else
     ValVT = VA.getValVT();
 
-  // Because we are dealing with BE architecture we need to offset loading of
-  // partial types
+  // Since it's BE architecture, if the type size is smaller than the slot size
+  // (e.g. i8 stored in a 4-byte slot) then move offset to the end of the slot.
   int Offset = VA.getLocMemOffset();
-  if (VA.getValVT() == MVT::i8) {
-    Offset += 3;
-  } else if (VA.getValVT() == MVT::i16) {
-    Offset += 2;
-  }
+  int LocSize = VA.getLocVT().getFixedSizeInBits();
+  int ValSize = VA.getValVT().getFixedSizeInBits();
+  Offset += (LocSize - ValSize) / 8;
 
   // TODO Interrupt handlers
   // Calculate SP offset of interrupt parameter, re-arrange the slot normally
