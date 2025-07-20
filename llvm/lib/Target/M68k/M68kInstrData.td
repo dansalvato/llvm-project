@@ -374,7 +374,7 @@ def MOVM32mp_P : MxMOVEM_RM_Pseudo<MxType32r, MxType32.POp>;
 /// --------------------------------------------------
 let Defs = [CCR] in {
 class MxMoveToCCR<MxOperand MEMOp, MxEncMemOp SRC_ENC>
-    : MxInst<(outs CCRC:$dst), (ins MEMOp:$src), "move.w\t$src, $dst", []> {
+    : MxInst<(outs), (ins MEMOp:$src), "move.w\t$src, %ccr", []> {
   let Inst = (ascend
     (descend 0b0100010011, SRC_ENC.EA),
     SRC_ENC.Supplement
@@ -382,7 +382,7 @@ class MxMoveToCCR<MxOperand MEMOp, MxEncMemOp SRC_ENC>
 }
 
 class MxMoveToCCRPseudo<MxOperand MEMOp>
-    : MxPseudo<(outs CCRC:$dst), (ins MEMOp:$src)>;
+    : MxPseudo<(outs), (ins MEMOp:$src)>;
 } // let Defs = [CCR]
 
 let mayLoad = 1 in
@@ -405,13 +405,13 @@ def MOV8cd  : MxMoveToCCRPseudo<MxOp8AddrMode_d.Op>;
 /// --------------------------------------------------
 let Uses = [CCR] in {
 class MxMoveFromCCR_R
-    : MxInst<(outs MxDRD16:$dst), (ins CCRC:$src), "move.w\t$src, $dst", []>,
+    : MxInst<(outs MxDRD16:$dst), (ins), "move.w\t%ccr, $dst", []>,
       Requires<[ AtLeastM68010 ]> {
   let Inst = (descend 0b0100001011, MxEncAddrMode_d<"dst">.EA);
 }
 
 class MxMoveFromCCR_M<MxOperand MEMOp, MxEncMemOp DST_ENC>
-    : MxInst<(outs), (ins MEMOp:$dst, CCRC:$src), "move.w\t$src, $dst", []>,
+    : MxInst<(outs), (ins MEMOp:$dst), "move.w\t%ccr, $dst", []>,
       Requires<[ AtLeastM68010 ]> {
   let Inst = (ascend
     (descend 0b0100001011, DST_ENC.EA),
@@ -420,9 +420,9 @@ class MxMoveFromCCR_M<MxOperand MEMOp, MxEncMemOp DST_ENC>
 }
 
 class MxMoveFromCCRPseudo<MxOperand MEMOp>
-    : MxPseudo<(outs), (ins MEMOp:$dst, CCRC:$src)>;
+    : MxPseudo<(outs), (ins MEMOp:$dst)>;
 class MxMoveFromCCR_RPseudo<MxOperand MEMOp>
-    : MxPseudo<(outs MEMOp:$dst), (ins CCRC:$src)>;
+    : MxPseudo<(outs MEMOp:$dst), (ins)>;
 } // let Uses = [CCR]
 
 let mayStore = 1 in
@@ -447,7 +447,7 @@ def MOV8dc  : MxMoveFromCCR_RPseudo<MxOp8AddrMode_d.Op>;
 /// --------------------------------------------------
 let Defs = [SR] in {
 class MxMoveToSR<MxOperand MEMOp, MxEncMemOp SRC_ENC>
-    : MxInst<(outs SRC:$dst), (ins MEMOp:$src), "move.w\t$src, $dst", []> {
+    : MxInst<(outs), (ins MEMOp:$src), "move.w\t$src, %sr", []> {
   let Inst = (ascend
     (descend 0b0100011011, SRC_ENC.EA),
     SRC_ENC.Supplement
@@ -470,16 +470,17 @@ def MOV16sd : MxMoveToSR<MxOp16AddrMode_d.Op, MxMoveSrcOpEnc_d>;
 ///                               | EFFECTIVE ADDRESS
 ///  0  1  0  0  0  0  0  0  1  1 |   MODE  |   REG
 /// --------------------------------------------------
+
+// MoveFromSR works on 68010+ but it causes an exception unless in
+// supervisor mode. But on 68000, MoveFromSR is the *only* way to move CCR.
 let Uses = [SR] in {
 class MxMoveFromSR_R
-    : MxInst<(outs MxDRD16:$dst), (ins SRC:$src), "move.w\t$src, $dst", []>,
-      Requires<[ AtLeastM68010 ]> {
+    : MxInst<(outs MxDRD16:$dst), (ins), "move.w\t%sr, $dst", []> {
   let Inst = (descend 0b0100000011, MxEncAddrMode_d<"dst">.EA);
 }
 
 class MxMoveFromSR_M<MxOperand MEMOp, MxEncMemOp DST_ENC>
-    : MxInst<(outs), (ins MEMOp:$dst, SRC:$src), "move.w\t$src, $dst", []>,
-      Requires<[ AtLeastM68010 ]> {
+    : MxInst<(outs), (ins MEMOp:$dst), "move.w\t%sr, $dst", []> {
   let Inst = (ascend
     (descend 0b0100000011, DST_ENC.EA),
     DST_ENC.Supplement
