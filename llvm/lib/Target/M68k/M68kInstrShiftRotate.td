@@ -96,3 +96,23 @@ defm ASR : MxSROp<"asr", sra, MxRODI_R, MxROOP_AS>;
 
 defm ROL : MxSROp<"rol", rotl, MxRODI_L, MxROOP_RO>;
 defm ROR : MxSROp<"ror", rotr, MxRODI_R, MxROOP_RO>;
+
+
+/// ---------------------------------------+---------
+///  F  E  D  C  B  A  9  8  7  6  5  4  3 | 2  1  0
+/// ---------------------------------------+---------
+///  0  1  0  0  1  0  0  0  0  1  0  0  0 |   REG
+/// ---------------------------------------+---------
+
+let isAsCheapAsAMove = 1, Defs = [CCR] in {
+let Constraints = "$src = $dst" in {
+def SWAP
+      : MxInst<(outs MxDRD32:$dst), (ins MxDRD32:$src), "swap\t$src",
+        []> {
+    let Inst = (descend 0b0100, 0b1000, 0b0100, 0b0, (operand "$src", 3));
+  }
+} // Constraints
+} // Defs = [CCR]
+
+def : Pat<(rotl i32:$src, (i32 16)), (SWAP MxDRD32:$src)>;
+def : Pat<(rotr i32:$src, (i32 16)), (SWAP MxDRD32:$src)>;
