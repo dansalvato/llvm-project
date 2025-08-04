@@ -953,6 +953,14 @@ ParseStatus M68kAsmParser::parseRegOrMoveMask(OperandVector &Operands) {
       break;
   }
 
+  // MOVEM pre-decrement requires register mask bits to be reversed.
+  if (Parser.getTok().is(AsmToken::Comma)) {
+    Parser.Lex();
+    if (Parser.getTok().is(AsmToken::Minus)) {
+      MemOp.RegMask = APInt(16, MemOp.RegMask).reverseBits().getZExtValue();
+    }
+  }
+
   Operands.push_back(
       M68kOperand::createMemOp(MemOp, Start, getLexer().getLoc()));
   return ParseStatus::Success;
