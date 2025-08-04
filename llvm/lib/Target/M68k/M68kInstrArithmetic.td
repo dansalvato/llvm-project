@@ -13,7 +13,7 @@
 ///  Machine:
 ///
 ///    ADD       [~]   ADDA      [~]   ADDI        [~]   ADDQ [ ]   ADDX [~]
-///    CLR       [ ]   CMP       [~]   CMPA        [~]   CMPI [~]   CMPM [ ]
+///    CLR       [~]   CMP       [~]   CMPA        [~]   CMPI [~]   CMPM [ ]
 ///    CMP2      [ ]   DIVS/DIVU [~]   DIVSL/DIVUL [ ]   EXT  [~]   EXTB [ ]
 ///    MULS/MULU [~]   NEG       [~]   NEGX        [~]   NOT  [~]   SUB  [~]
 ///    SUBA      [~]   SUBI      [~]   SUBQ        [ ]   SUBX [~]
@@ -1106,3 +1106,60 @@ defm FADD : MxFBinaryOp<"add", 0b1100010, 0b1100110, 0b0100010>;
 defm FSUB : MxFBinaryOp<"sub", 0b1101000, 0b1101100, 0b0101000>;
 defm FMUL : MxFBinaryOp<"mul", 0b1100011, 0b1100111, 0b0100011>;
 defm FDIV : MxFBinaryOp<"div", 0b1100000, 0b1100100, 0b0100000>;
+
+
+//===----------------------------------------------------------------------===//
+// CLR
+//===----------------------------------------------------------------------===//
+
+/// ---------------------------------------------------
+///  F  E  D  C  B  A  9  8 | 7  6 | 5  4  3 | 2  1  0
+/// ---------------------------------------------------
+///                         |      | EFFECTIVE ADDRESS
+///  0  1  0  0  0  0  1  0 | SIZE |   MODE  |   REG
+/// ---------------------------------------------------
+
+let Defs = [CCR] in {
+
+class MxClr_D<MxType TYPE>
+    : MxInst<(outs TYPE.ROp:$dst), (ins),
+             "clr."#TYPE.Prefix#"\t$dst",
+             [(set TYPE.VT:$dst, (TYPE.VT 0))]> {
+  let Inst = (descend 0b01000010,
+    /*SIZE*/!cast<MxEncSize>("MxEncSize"#TYPE.Size).Value,
+    //MODE without last bit
+    0b00,
+    //REGISTER prefixed by D/A bit
+    (operand "$dst", 4)
+  );
+}
+
+// CLR reads memory before clearing on M68000 and M68008
+// TODO: mayLoad is *only* applicable on M68000 and M68008
+let mayLoad = 1, mayStore = 1 in
+class MxClr_M<MxType TYPE, MxOpBundle DST, MxEncMemOp DST_ENC>
+    : MxInst<(outs), (ins DST.Op:$dst),
+             "clr."#TYPE.Prefix#"\t$dst",
+             [(store (TYPE.VT 0), DST.Pat:$dst)]> {
+  let Inst = (ascend
+    (descend 0b01000010,
+    /*SIZE*/!cast<MxEncSize>("MxEncSize"#TYPE.Size).Value,
+    DST_ENC.EA), DST_ENC.Supplement
+  );
+}
+} // let Defs = [CCR]
+
+foreach S = [8, 16, 32] in {
+  defvar DTYPE = !cast<MxType>("MxType"#S#"d");
+  def CLR#S#d : MxClr_D<DTYPE>;
+
+  defvar MTYPE = !cast<MxType>("MxType"#S);
+  def CLR#S#j : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_j"), MxEncAddrMode_j<"dst">>;
+  def CLR#S#o : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_o"), MxEncAddrMode_o<"dst">>;
+  def CLR#S#e : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_e"), MxEncAddrMode_e<"dst">>;
+  def CLR#S#p : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_p"), MxEncAddrMode_p<"dst">>;
+  def CLR#S#f : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_f"), MxEncAddrMode_f<"dst">>;
+  def CLR#S#b : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_b"), MxEncAddrMode_abs<"dst", true>>;
+  def CLR#S#q : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_q"), MxEncAddrMode_q<"dst">>;
+  def CLR#S#k : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_k"), MxEncAddrMode_k<"dst">>;
+}
