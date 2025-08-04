@@ -295,6 +295,7 @@ def CALLk : MxCall<MxPCI32, MxEncAddrMode_k<"dst">>;
 def CALLq : MxCall<MxPCD32, MxEncAddrMode_q<"dst">>;
 def CALLb : MxCall<MxAL32,  MxEncAddrMode_abs<"dst", true>>;
 def CALLj : MxCall<MxARI32, MxEncAddrMode_j<"dst">>;
+def CALLp : MxCall<MxARID32, MxEncAddrMode_p<"dst">>;
 
 multiclass CallPat<MxCall callOp, Predicate pred> {
   let Predicates = [pred] in {
