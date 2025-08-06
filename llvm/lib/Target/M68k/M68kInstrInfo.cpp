@@ -473,13 +473,6 @@ bool M68kInstrInfo::ExpandMOVSZX_RR(MachineInstrBuilder &MIB, bool IsSigned,
                                     MVT MVTDst, MVT MVTSrc) const {
   LLVM_DEBUG(dbgs() << "Expand " << *MIB.getInstr() << " to ");
 
-  unsigned Move;
-
-  if (MVTDst == MVT::i16)
-    Move = M68k::MOV16rr;
-  else // i32
-    Move = M68k::MOV32rr;
-
   Register Dst = MIB->getOperand(0).getReg();
   Register Src = MIB->getOperand(1).getReg();
 
@@ -501,17 +494,45 @@ bool M68kInstrInfo::ExpandMOVSZX_RR(MachineInstrBuilder &MIB, bool IsSigned,
   MachineBasicBlock &MBB = *MIB->getParent();
   DebugLoc DL = MIB->getDebugLoc();
 
-  if (Dst != SSrc) {
-    LLVM_DEBUG(dbgs() << "Move and " << '\n');
-    BuildMI(MBB, MIB.getInstr(), DL, get(Move), Dst).addReg(SSrc);
-  }
+  // It's more efficient to clear the destination and *then* move, rather than
+  // move and zext.
+  if (Dst != SSrc && !IsSigned) {
 
-  if (IsSigned) {
-    LLVM_DEBUG(dbgs() << "Sign Extend" << '\n');
-    AddSExt(MBB, MIB.getInstr(), DL, Dst, MVTSrc, MVTDst);
-  } else {
-    LLVM_DEBUG(dbgs() << "Zero Extend" << '\n');
-    AddZExt(MBB, MIB.getInstr(), DL, Dst, MVTSrc, MVTDst);
+    unsigned Move;
+    if (MVTSrc == MVT::i8)
+      Move = M68k::MOV8dd;
+    else // i16
+      Move = M68k::MOV16dd;
+    unsigned Clr;
+    if (MVTDst == MVT::i16)
+      Clr = M68k::CLR16d;
+    else // i32
+      Clr = M68k::CLR32d;
+
+    LLVM_DEBUG(dbgs() << "Clear and Zero Extend" << '\n');
+    BuildMI(MBB, MIB.getInstr(), DL, get(Clr), Dst);
+    BuildMI(MBB, MIB.getInstr(), DL, get(Move), Dst).addReg(Src);
+  }
+  else {
+
+    unsigned Move;
+    if (MVTDst == MVT::i16)
+      Move = M68k::MOV16dd;
+    else // i32
+      Move = M68k::MOV32dd;
+
+    if (Dst != SSrc) {
+      LLVM_DEBUG(dbgs() << "Move and " << '\n');
+      BuildMI(MBB, MIB.getInstr(), DL, get(Move), Dst).addReg(SSrc);
+    }
+
+    if (IsSigned) {
+      LLVM_DEBUG(dbgs() << "Sign Extend" << '\n');
+      AddSExt(MBB, MIB.getInstr(), DL, Dst, MVTSrc, MVTDst);
+    } else {
+      LLVM_DEBUG(dbgs() << "Zero Extend" << '\n');
+      AddZExt(MBB, MIB.getInstr(), DL, Dst, MVTSrc, MVTDst);
+    }
   }
 
   MIB->eraseFromParent();
@@ -522,7 +543,7 @@ bool M68kInstrInfo::ExpandMOVSZX_RR(MachineInstrBuilder &MIB, bool IsSigned,
 bool M68kInstrInfo::ExpandMOVSZX_RM(MachineInstrBuilder &MIB, bool IsSigned,
                                     const MCInstrDesc &Desc, MVT MVTDst,
                                     MVT MVTSrc) const {
-  LLVM_DEBUG(dbgs() << "Expand " << *MIB.getInstr() << " to LOAD and ");
+  LLVM_DEBUG(dbgs() << "Expand " << *MIB.getInstr() << " to ");
 
   Register Dst = MIB->getOperand(0).getReg();
 
@@ -541,16 +562,34 @@ bool M68kInstrInfo::ExpandMOVSZX_RM(MachineInstrBuilder &MIB, bool IsSigned,
   MIB->getOperand(0).setReg(SubDst);
 
   MachineBasicBlock::iterator I = MIB.getInstr();
-  I++;
   MachineBasicBlock &MBB = *MIB->getParent();
   DebugLoc DL = MIB->getDebugLoc();
 
-  if (IsSigned) {
-    LLVM_DEBUG(dbgs() << "Sign Extend" << '\n');
-    AddSExt(MBB, I, DL, Dst, MVTSrc, MVTDst);
-  } else {
-    LLVM_DEBUG(dbgs() << "Zero Extend" << '\n');
-    AddZExt(MBB, I, DL, Dst, MVTSrc, MVTDst);
+  // We can only clear before loading if the destination register isn't being
+  // used as an index for the load.
+  if (!IsSigned && !MIB->readsRegister(Dst, Subtarget.getRegisterInfo())) {
+    unsigned Clr;
+    if (MVTDst == MVT::i16) {
+      Clr = M68k::CLR16d;
+    } else { // i32
+      Clr = M68k::CLR32d;
+    }
+
+    // Clear before load
+    LLVM_DEBUG(dbgs() << "Clear and LOAD" << '\n');
+    BuildMI(MBB, MIB.getInstr(), DL, get(Clr), Dst);
+    I++;
+  }
+  else {
+    // Extend after load
+    I++;
+    if (IsSigned) {
+      LLVM_DEBUG(dbgs() << "LOAD and Sign Extend" << '\n');
+      AddSExt(MBB, I, DL, Dst, MVTSrc, MVTDst);
+    } else {
+      LLVM_DEBUG(dbgs() << "Zero Extend" << '\n');
+      AddZExt(MBB, I, DL, Dst, MVTSrc, MVTDst);
+    }
   }
 
   return true;
