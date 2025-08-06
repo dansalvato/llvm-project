@@ -644,14 +644,10 @@ def MOVXd32d16 : MxPseudoMove_RR<MxType32r, MxType16r>;
 //===----------------------------------------------------------------------===//
 
 // i16 <- sext i8
-def: Pat<(i16 (sext i8:$src)),
-          (EXTRACT_SUBREG (MOVSXd32d8 MxDRD8:$src), MxSubRegIndex16Lo)>;
-def: Pat<(MxSExtLoadi16i8 MxCP_ARI:$src),
-          (EXTRACT_SUBREG (MOVSXd32j8 MxARI8:$src), MxSubRegIndex16Lo)>;
-def: Pat<(MxSExtLoadi16i8 MxCP_ARID:$src),
-          (EXTRACT_SUBREG (MOVSXd32p8 MxARID8:$src), MxSubRegIndex16Lo)>;
-def: Pat<(MxSExtLoadi16i8 MxCP_ARII:$src),
-          (EXTRACT_SUBREG (MOVSXd32f8 MxARII8:$src), MxSubRegIndex16Lo)>;
+def: Pat<(i16 (sext i8:$src)), (MOVSXd16d8 MxDRD8:$src)>;
+def: Pat<(MxSExtLoadi16i8 MxCP_ARI:$src), (MOVSXd16j8 MxARI8:$src)>;
+def: Pat<(MxSExtLoadi16i8 MxCP_ARID:$src), (MOVSXd16p8 MxARID8:$src)>;
+def: Pat<(MxSExtLoadi16i8 MxCP_ARII:$src), (MOVSXd16f8 MxARII8:$src)>;
 def: Pat<(MxSExtLoadi16i8 MxCP_PCD:$src), (MOVSXd16q8 MxPCD8:$src)>;
 
 // i32 <- sext i8
@@ -669,14 +665,10 @@ def: Pat<(MxSExtLoadi32i16 MxCP_ARII:$src), (MOVSXd32f16 MxARII16:$src)>;
 def: Pat<(MxSExtLoadi32i16 MxCP_PCD:$src),  (MOVSXd32q16 MxPCD16:$src)>;
 
 // i16 <- zext i8
-def: Pat<(i16 (zext i8:$src)),
-          (EXTRACT_SUBREG (MOVZXd32d8 MxDRD8:$src), MxSubRegIndex16Lo)>;
-def: Pat<(MxZExtLoadi16i8 MxCP_ARI:$src),
-          (EXTRACT_SUBREG (MOVZXd32j8 MxARI8:$src), MxSubRegIndex16Lo)>;
-def: Pat<(MxZExtLoadi16i8 MxCP_ARID:$src),
-          (EXTRACT_SUBREG (MOVZXd32p8 MxARID8:$src), MxSubRegIndex16Lo)>;
-def: Pat<(MxZExtLoadi16i8 MxCP_ARII:$src),
-          (EXTRACT_SUBREG (MOVZXd32f8 MxARII8:$src), MxSubRegIndex16Lo)>;
+def: Pat<(i16 (zext i8:$src)), (MOVZXd16d8 MxDRD8:$src)>;
+def: Pat<(MxZExtLoadi16i8 MxCP_ARI:$src), (MOVZXd16j8 MxARI8:$src)>;
+def: Pat<(MxZExtLoadi16i8 MxCP_ARID:$src), (MOVZXd16p8 MxARID8:$src)>;
+def: Pat<(MxZExtLoadi16i8 MxCP_ARII:$src), (MOVZXd16f8 MxARII8:$src)>;
 def: Pat<(MxZExtLoadi16i8 MxCP_PCD :$src), (MOVZXd16q8 MxPCD8 :$src)>;
 
 // i32 <- zext i8
@@ -694,14 +686,10 @@ def: Pat<(MxZExtLoadi32i16 MxCP_ARII:$src), (MOVZXd32f16 MxARII16:$src)>;
 def: Pat<(MxZExtLoadi32i16 MxCP_PCD :$src), (MOVZXd32q16 MxPCD16 :$src)>;
 
 // i16 <- anyext i8
-def: Pat<(i16 (anyext i8:$src)),
-          (EXTRACT_SUBREG (MOVZXd32d8 MxDRD8:$src), MxSubRegIndex16Lo)>;
-def: Pat<(MxExtLoadi16i8 MxCP_ARI:$src),
-          (EXTRACT_SUBREG (MOVZXd32j8 MxARI8:$src), MxSubRegIndex16Lo)>;
-def: Pat<(MxExtLoadi16i8 MxCP_ARID:$src),
-          (EXTRACT_SUBREG (MOVZXd32p8 MxARID8:$src), MxSubRegIndex16Lo)>;
-def: Pat<(MxExtLoadi16i8 MxCP_ARII:$src),
-          (EXTRACT_SUBREG (MOVZXd32f8 MxARII8:$src), MxSubRegIndex16Lo)>;
+def: Pat<(i16 (anyext i8:$src)), (MOVZXd16d8 MxDRD8:$src)>;
+def: Pat<(MxExtLoadi16i8 MxCP_ARI:$src), (MOVZXd16j8 MxARI8:$src)>;
+def: Pat<(MxExtLoadi16i8 MxCP_ARID:$src), (MOVZXd16p8 MxARID8:$src)>;
+def: Pat<(MxExtLoadi16i8 MxCP_ARII:$src), (MOVZXd16f8 MxARII8:$src)>;
 
 // i32 <- anyext i8
 def: Pat<(i32 (anyext i8:$src)), (MOVZXd32d8 MxDRD8:$src)>;
