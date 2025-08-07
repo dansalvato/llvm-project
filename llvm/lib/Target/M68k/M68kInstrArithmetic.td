@@ -397,17 +397,17 @@ defm XOR : MxBiArOp_DF_EAd<"eor", MxXor, 0xB, 0xA>;
 let isCompare = 1, Defs = [CCR] in {
 class MxCmp_RR<MxType LHS_TYPE, MxType RHS_TYPE = LHS_TYPE>
     : MxInst<(outs), (ins LHS_TYPE.ROp:$lhs, RHS_TYPE.ROp:$rhs),
-             "cmp."#RHS_TYPE.Prefix#"\t$lhs, $rhs",
+             "cmp."#RHS_TYPE.Prefix#"\t$rhs, $lhs",
              [(set CCR, (MxCmp LHS_TYPE.VT:$lhs, RHS_TYPE.VT:$rhs))]> {
   let Inst = (descend 0b1011,
     // REGISTER
-    (operand "$rhs", 3),
+    (operand "$lhs", 3),
     // OPMODE
     !cast<MxOpModeEncoding>("MxOpMode"#RHS_TYPE.Size#"_"#RHS_TYPE.RLet#"_EA").Value,
     // MODE without last bit
     0b00,
     // REGISTER prefixed by D/A bit
-    (operand "$lhs", 4)
+    (operand "$rhs", 4)
   );
 }
 
@@ -467,7 +467,7 @@ class MxCmp_RM<MxType TYPE, MxOperand MEMOpd, ComplexPattern MEMPat,
                MxEncMemOp MEM_ENC>
     : MxInst<(outs), (ins TYPE.ROp:$reg, MEMOpd:$mem),
              "cmp."#TYPE.Prefix#"\t$mem, $reg",
-             [(set CCR, (MxCmp (load MEMPat:$mem), TYPE.ROp:$reg))]> {
+             [(set CCR, (MxCmp  TYPE.ROp:$reg, (load MEMPat:$mem)))]> {
   let Inst = (ascend
     (descend 0b1011,
       // REGISTER
