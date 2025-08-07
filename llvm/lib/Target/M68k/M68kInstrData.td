@@ -602,7 +602,11 @@ def MOVI32ri : MxPseudoMove_DI<MxType32r>;
 /// what registers are allocated for the operands and if they overlap we just
 /// extend the value if the registers are completely different we need to move
 /// first.
-foreach EXT = ["S", "Z"] in {
+/// The "" group (MOVXd16d8, etc.) is similar to the others but does NOT do any
+/// value extension, they just load a smaller register into the lower part of
+/// another register if operands' real registers are different or does nothing
+/// if they are the same.
+foreach EXT = ["S", "Z", ""] in {
   let hasSideEffects = 0 in {
 
     def MOV#EXT#Xd16d8  : MxPseudoMove_RR<MxType16d,  MxType8d>;
@@ -630,14 +634,6 @@ foreach EXT = ["S", "Z"] in {
     }
   }
 }
-
-/// This group of instructions is similar to the group above but DOES NOT do
-/// any value extension, they just load a smaller register into the lower part
-/// of another register if operands' real registers are different or does
-/// nothing if they are the same.
-def MOVXd16d8  : MxPseudoMove_RR<MxType16d,  MxType8d>;
-def MOVXd32d8  : MxPseudoMove_RR<MxType32d,  MxType8d>;
-def MOVXd32d16 : MxPseudoMove_RR<MxType32r, MxType16r>;
 
 //===----------------------------------------------------------------------===//
 // Extend/Truncate Patterns
@@ -686,22 +682,22 @@ def: Pat<(MxZExtLoadi32i16 MxCP_ARII:$src), (MOVZXd32f16 MxARII16:$src)>;
 def: Pat<(MxZExtLoadi32i16 MxCP_PCD :$src), (MOVZXd32q16 MxPCD16 :$src)>;
 
 // i16 <- anyext i8
-def: Pat<(i16 (anyext i8:$src)), (MOVZXd16d8 MxDRD8:$src)>;
-def: Pat<(MxExtLoadi16i8 MxCP_ARI:$src), (MOVZXd16j8 MxARI8:$src)>;
-def: Pat<(MxExtLoadi16i8 MxCP_ARID:$src), (MOVZXd16p8 MxARID8:$src)>;
-def: Pat<(MxExtLoadi16i8 MxCP_ARII:$src), (MOVZXd16f8 MxARII8:$src)>;
+def: Pat<(i16 (anyext i8:$src)), (MOVXd16d8 MxDRD8:$src)>;
+def: Pat<(MxExtLoadi16i8 MxCP_ARI:$src), (MOVXd16j8 MxARI8:$src)>;
+def: Pat<(MxExtLoadi16i8 MxCP_ARID:$src), (MOVXd16p8 MxARID8:$src)>;
+def: Pat<(MxExtLoadi16i8 MxCP_ARII:$src), (MOVXd16f8 MxARII8:$src)>;
 
 // i32 <- anyext i8
-def: Pat<(i32 (anyext i8:$src)), (MOVZXd32d8 MxDRD8:$src)>;
-def: Pat<(MxExtLoadi32i8 MxCP_ARI :$src), (MOVZXd32j8 MxARI8 :$src)>;
-def: Pat<(MxExtLoadi32i8 MxCP_ARID:$src), (MOVZXd32p8 MxARID8:$src)>;
-def: Pat<(MxExtLoadi32i8 MxCP_ARII:$src), (MOVZXd32f8 MxARII8:$src)>;
+def: Pat<(i32 (anyext i8:$src)), (MOVXd32d8 MxDRD8:$src)>;
+def: Pat<(MxExtLoadi32i8 MxCP_ARI :$src), (MOVXd32j8 MxARI8 :$src)>;
+def: Pat<(MxExtLoadi32i8 MxCP_ARID:$src), (MOVXd32p8 MxARID8:$src)>;
+def: Pat<(MxExtLoadi32i8 MxCP_ARII:$src), (MOVXd32f8 MxARII8:$src)>;
 
 // i32 <- anyext i16
-def: Pat<(i32 (anyext i16:$src)), (MOVZXd32d16 MxDRD16:$src)>;
-def: Pat<(MxExtLoadi32i16 MxCP_ARI :$src), (MOVZXd32j16 MxARI16 :$src)>;
-def: Pat<(MxExtLoadi32i16 MxCP_ARID:$src), (MOVZXd32p16 MxARID16:$src)>;
-def: Pat<(MxExtLoadi32i16 MxCP_ARII:$src), (MOVZXd32f16 MxARII16:$src)>;
+def: Pat<(i32 (anyext i16:$src)), (MOVXd32d16 MxDRD16:$src)>;
+def: Pat<(MxExtLoadi32i16 MxCP_ARI :$src), (MOVXd32j16 MxARI16 :$src)>;
+def: Pat<(MxExtLoadi32i16 MxCP_ARID:$src), (MOVXd32p16 MxARID16:$src)>;
+def: Pat<(MxExtLoadi32i16 MxCP_ARII:$src), (MOVXd32f16 MxARII16:$src)>;
 
 // trunc patterns
 def : Pat<(i16 (trunc i32:$src)),
