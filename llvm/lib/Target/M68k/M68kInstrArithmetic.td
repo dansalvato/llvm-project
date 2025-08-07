@@ -1136,7 +1136,7 @@ class MxClr_D<MxType TYPE>
 
 // CLR reads memory before clearing on M68000 and M68008
 // TODO: mayLoad is *only* applicable on M68000 and M68008
-let mayLoad = 1, mayStore = 1 in
+let mayLoad = 1, mayStore = 1 in {
 class MxClr_M<MxType TYPE, MxOpBundle DST, MxEncMemOp DST_ENC>
     : MxInst<(outs), (ins DST.Op:$dst),
              "clr."#TYPE.Prefix#"\t$dst",
@@ -1147,11 +1147,25 @@ class MxClr_M<MxType TYPE, MxOpBundle DST, MxEncMemOp DST_ENC>
     DST_ENC.EA), DST_ENC.Supplement
   );
 }
+
+class MxClr_B<MxType TYPE>
+    : MxInst<(outs), (ins MxAL32:$dst),
+             "clr."#TYPE.Prefix#"\t$dst",
+             [(store (TYPE.VT 0), (i32 (MxWrapper tglobaladdr:$dst)))]> {
+  defvar AbsEncoding = MxEncAddrMode_abs<"dst", true>;
+  let Inst = (ascend
+    (descend 0b01000010,
+    /*SIZE*/!cast<MxEncSize>("MxEncSize"#TYPE.Size).Value,
+    AbsEncoding.EA), AbsEncoding.Supplement
+  );
+}
+} // let mayLoad = 1, mayStore = 1
 } // let Defs = [CCR]
 
 foreach S = [8, 16, 32] in {
   defvar DTYPE = !cast<MxType>("MxType"#S#"d");
   def CLR#S#d : MxClr_D<DTYPE>;
+  def CLR#S#b : MxClr_B<DTYPE>;
 
   defvar MTYPE = !cast<MxType>("MxType"#S);
   def CLR#S#j : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_j"), MxEncAddrMode_j<"dst">>;
@@ -1159,7 +1173,6 @@ foreach S = [8, 16, 32] in {
   def CLR#S#e : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_e"), MxEncAddrMode_e<"dst">>;
   def CLR#S#p : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_p"), MxEncAddrMode_p<"dst">>;
   def CLR#S#f : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_f"), MxEncAddrMode_f<"dst">>;
-  def CLR#S#b : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_b"), MxEncAddrMode_abs<"dst", true>>;
   def CLR#S#q : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_q"), MxEncAddrMode_q<"dst">>;
   def CLR#S#k : MxClr_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_k"), MxEncAddrMode_k<"dst">>;
 }
