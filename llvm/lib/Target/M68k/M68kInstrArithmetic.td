@@ -394,7 +394,7 @@ defm XOR : MxBiArOp_DF_EAd<"eor", MxXor, 0xB, 0xA>;
 // CMP
 //===----------------------------------------------------------------------===//
 
-let Defs = [CCR] in {
+let isCompare = 1, Defs = [CCR] in {
 class MxCmp_RR<MxType LHS_TYPE, MxType RHS_TYPE = LHS_TYPE>
     : MxInst<(outs), (ins LHS_TYPE.ROp:$lhs, RHS_TYPE.ROp:$rhs),
              "cmp."#RHS_TYPE.Prefix#"\t$lhs, $rhs",
@@ -414,7 +414,7 @@ class MxCmp_RR<MxType LHS_TYPE, MxType RHS_TYPE = LHS_TYPE>
 class MxCmp_RI<MxType TYPE>
     : MxInst<(outs), (ins TYPE.IOp:$imm, TYPE.ROp:$reg),
              "cmpi."#TYPE.Prefix#"\t$imm, $reg",
-             [(set CCR, (MxCmp TYPE.IPat:$imm, TYPE.VT:$reg))]> {
+             [(set CCR, (MxCmp TYPE.VT:$reg, TYPE.IPat:$imm))]> {
   let Inst = (ascend
     (descend 0b00001100,
              !cast<MxEncSize>("MxEncSize"#TYPE.Size).Value,
@@ -433,7 +433,7 @@ class MxCmp_MI<MxType TYPE, MxOperand MEMOpd, ComplexPattern MEMPat,
                MxEncMemOp MEM_ENC>
     : MxInst<(outs), (ins TYPE.IOp:$imm, MEMOpd:$mem),
              "cmpi."#TYPE.Prefix#"\t$imm, $mem",
-             [(set CCR, (MxCmp TYPE.IPat:$imm, (load MEMPat:$mem)))]> {
+             [(set CCR, (MxCmp (load MEMPat:$mem), TYPE.IPat:$imm))]> {
   let Inst = (ascend
     (descend 0b00001100,
              !cast<MxEncSize>("MxEncSize"#TYPE.Size).Value,
@@ -449,8 +449,8 @@ class MxCmp_MI<MxType TYPE, MxOperand MEMOpd, ComplexPattern MEMPat,
 class MxCmp_BI<MxType TYPE>
     : MxInst<(outs), (ins TYPE.IOp:$imm, MxAL32:$abs),
              "cmpi."#TYPE.Prefix#"\t$imm, $abs",
-             [(set CCR, (MxCmp TYPE.IPat:$imm,
-                               (load (i32 (MxWrapper tglobaladdr:$abs)))))]> {
+             [(set CCR, (MxCmp (load (i32 (MxWrapper tglobaladdr:$abs))),
+                                TYPE.IPat:$imm))]> {
   defvar AbsEncoding = MxEncAddrMode_abs<"abs", true>;
   let Inst = (ascend
     (descend 0b00001100,

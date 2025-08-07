@@ -1910,8 +1910,8 @@ SDValue M68kTargetLowering::EmitTest(SDValue Op, unsigned M68kCC,
   // we prove that the arithmetic won't overflow, we can't use OF or CF.
   if (Op.getResNo() != 0 || NeedOF || NeedCF) {
     // Emit a CMP with 0, which is the TEST pattern.
-    return DAG.getNode(M68kISD::CMP, DL, MVT::i8,
-                       DAG.getConstant(0, DL, Op.getValueType()), Op);
+    return DAG.getNode(M68kISD::CMP, DL, MVT::i8, Op,
+                       DAG.getConstant(0, DL, Op.getValueType()));
   }
   unsigned Opcode = 0;
   unsigned NumOperands = 0;
@@ -2068,8 +2068,8 @@ SDValue M68kTargetLowering::EmitTest(SDValue Op, unsigned M68kCC,
 
   if (Opcode == 0) {
     // Emit a CMP with 0, which is the TEST pattern.
-    return DAG.getNode(M68kISD::CMP, DL, MVT::i8,
-                       DAG.getConstant(0, DL, Op.getValueType()), Op);
+    return DAG.getNode(M68kISD::CMP, DL, MVT::i8, Op,
+                       DAG.getConstant(0, DL, Op.getValueType()));
   }
   SDVTList VTs = DAG.getVTList(Op.getValueType(), MVT::i8);
   SmallVector<SDValue, 4> Ops(Op->op_begin(), Op->op_begin() + NumOperands);
@@ -2107,24 +2107,7 @@ SDValue M68kTargetLowering::EmitCmp(SDValue Op0, SDValue Op1, unsigned M68kCC,
   assert(!(isa<ConstantSDNode>(Op1) && Op0.getValueType() == MVT::i1) &&
          "Unexpected comparison operation for MVT::i1 operands");
 
-  if ((Op0.getValueType() == MVT::i8 || Op0.getValueType() == MVT::i16 ||
-       Op0.getValueType() == MVT::i32 || Op0.getValueType() == MVT::i64)) {
-    // Only promote the compare up to I32 if it is a 16 bit operation
-    // with an immediate.  16 bit immediates are to be avoided.
-    if ((Op0.getValueType() == MVT::i16 &&
-         (isa<ConstantSDNode>(Op0) || isa<ConstantSDNode>(Op1))) &&
-        !DAG.getMachineFunction().getFunction().hasMinSize()) {
-      unsigned ExtendOp =
-          isM68kCCUnsigned(M68kCC) ? ISD::ZERO_EXTEND : ISD::SIGN_EXTEND;
-      Op0 = DAG.getNode(ExtendOp, DL, MVT::i32, Op0);
-      Op1 = DAG.getNode(ExtendOp, DL, MVT::i32, Op1);
-    }
-    // Use SUB instead of CMP to enable CSE between SUB and CMP.
-    SDVTList VTs = DAG.getVTList(Op0.getValueType(), MVT::i8);
-    SDValue Sub = DAG.getNode(M68kISD::SUB, DL, VTs, Op0, Op1);
-    return SDValue(Sub.getNode(), 1);
-  }
-  return DAG.getNode(M68kISD::CMP, DL, MVT::i8, Op0, Op1);
+  return DAG.getNode(M68kISD::CMP, DL, Op0.getValueType(), Op0, Op1);
 }
 
 /// Result of 'and' or 'trunc to i1' is compared against zero.
@@ -2305,7 +2288,7 @@ SDValue M68kTargetLowering::LowerSELECT(SDValue Op, SelectionDAG &DAG) const {
       }
 
       Cmp = DAG.getNode(M68kISD::CMP, DL, MVT::i8,
-                        DAG.getConstant(1, DL, CmpOp0.getValueType()), CmpOp0);
+                        CmpOp0, DAG.getConstant(1, DL, CmpOp0.getValueType()));
 
       SDValue Res = // Res = 0 or -1.
           DAG.getNode(M68kISD::SETCC_CARRY, DL, Op.getValueType(),
