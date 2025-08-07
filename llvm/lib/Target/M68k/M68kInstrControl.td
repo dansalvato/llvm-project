@@ -15,7 +15,7 @@
 ///       BRA   [x]     BSR  [~]     Bcc [~]     DBcc [ ]     FBcc [ ]
 ///       FDBcc [ ]     FNOP [ ]     FPn [ ]     FScc [ ]     FTST [ ]
 ///       JMP   [~]     JSR  [x]     NOP [x]     RTD  [!]     RTR  [ ]
-///       RTS   [x]     Scc  [~]     TST [ ]
+///       RTS   [x]     Scc  [~]     TST [~]
 ///
 ///  Pseudo:
 ///
@@ -434,4 +434,71 @@ def BKPT : MxInst<(outs), (ins MxBkptimm:$vect), "bkpt\t$vect", []> {
 
 def ILLEGAL : MxInst<(outs), (ins), "illegal", []> {
   let Inst = (descend 0b0100, 0b1010, 0b1111, 0b1100);
+}
+
+//===----------------------------------------------------------------------===//
+// TST
+//===----------------------------------------------------------------------===//
+
+/// ---------------------------------------------------
+///  F  E  D  C  B  A  9  8 | 7  6 | 5  4  3 | 2  1  0
+/// ---------------------------------------------------
+///                         |      | EFFECTIVE ADDRESS
+///  0  1  0  0  1  0  1  0 | SIZE |   MODE  |   REG
+/// ---------------------------------------------------
+
+let isCompare = 1, Defs = [CCR] in {
+class MxTst_D<MxType TYPE>
+    : MxInst<(outs), (ins TYPE.ROp:$reg),
+             "tst."#TYPE.Prefix#"\t$reg",
+             [(set CCR, (MxCmp TYPE.VT:$reg, (TYPE.VT 0)))]> {
+  let Inst = (descend 0b01001010,
+    /*SIZE*/!cast<MxEncSize>("MxEncSize"#TYPE.Size).Value,
+    //MODE without last bit
+    0b00,
+    //REGISTER prefixed by D/A bit
+    (operand "$reg", 4)
+  );
+}
+
+let mayLoad = 1 in {
+class MxTst_M<MxType TYPE, MxOpBundle DST, MxEncMemOp DST_ENC>
+    : MxInst<(outs), (ins DST.Op:$dst),
+             "tst."#TYPE.Prefix#"\t$dst",
+             [(set CCR, (MxCmp (load DST.Pat:$dst), (TYPE.VT 0)))]> {
+  let Inst = (ascend
+    (descend 0b01001010,
+    /*SIZE*/!cast<MxEncSize>("MxEncSize"#TYPE.Size).Value,
+    DST_ENC.EA), DST_ENC.Supplement
+  );
+}
+
+class MxTst_B<MxType TYPE>
+    : MxInst<(outs), (ins MxAL32:$abs),
+             "tst."#TYPE.Prefix#"\t$abs",
+             [(set CCR, (MxCmp (load (i32 (MxWrapper tglobaladdr:$abs))),
+                                (TYPE.VT 0)))]> {
+  defvar AbsEncoding = MxEncAddrMode_abs<"abs", true>;
+  let Inst = (ascend
+    (descend 0b01001010,
+    /*SIZE*/!cast<MxEncSize>("MxEncSize"#TYPE.Size).Value,
+    AbsEncoding.EA), AbsEncoding.Supplement
+  );
+}
+} // let mayLoad = 1
+} // let Defs = [CCR]
+
+foreach S = [8, 16, 32] in {
+  defvar DTYPE = !cast<MxType>("MxType"#S#"d");
+  def TST#S#d : MxTst_D<DTYPE>;
+  def TST#S#b : MxTst_B<DTYPE>;
+
+  defvar MTYPE = !cast<MxType>("MxType"#S);
+  def TST#S#j : MxTst_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_j"), MxEncAddrMode_j<"dst">>;
+  def TST#S#o : MxTst_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_o"), MxEncAddrMode_o<"dst">>;
+  def TST#S#e : MxTst_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_e"), MxEncAddrMode_e<"dst">>;
+  def TST#S#p : MxTst_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_p"), MxEncAddrMode_p<"dst">>;
+  def TST#S#f : MxTst_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_f"), MxEncAddrMode_f<"dst">>;
+  def TST#S#q : MxTst_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_q"), MxEncAddrMode_q<"dst">>;
+  def TST#S#k : MxTst_M<MTYPE, !cast<MxOpBundle>("MxOp"#S#"AddrMode_k"), MxEncAddrMode_k<"dst">>;
 }
