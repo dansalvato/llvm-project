@@ -39,7 +39,7 @@ class M68kAsmParser : public MCTargetAsmParser {
 #include "M68kGenAsmMatcher.inc"
 
   // Helpers for Match&Emit.
-  bool invalidOperand(const SMLoc &Loc, const OperandVector &Operands,
+  bool invalidOperand(SMLoc Loc, const OperandVector &Operands,
                       const uint64_t &ErrorInfo);
   bool missingFeature(SMLoc Loc, const uint64_t &ErrorInfo);
   bool emit(MCInst &Inst, SMLoc Loc, MCStreamer &Out) const;
