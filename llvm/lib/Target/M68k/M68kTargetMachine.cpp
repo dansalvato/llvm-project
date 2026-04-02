@@ -42,6 +42,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeM68kTarget() {
   initializeM68kExpandPseudoPass(*PR);
   initializeM68kGlobalBaseRegPass(*PR);
   initializeM68kCollapseMOVEMPass(*PR);
+  initializeM68kCMPLivenessPass(*PR);
 }
 
 namespace {
@@ -127,6 +128,7 @@ public:
   bool addRegBankSelect() override;
   bool addGlobalInstructionSelect() override;
   bool addInstSelector() override;
+  void addPreRegAlloc() override;
   void addPreSched2() override;
   void addPreEmitPass() override;
 };
@@ -172,4 +174,8 @@ void M68kPassConfig::addPreSched2() { addPass(createM68kExpandPseudoPass()); }
 
 void M68kPassConfig::addPreEmitPass() {
   addPass(createM68kCollapseMOVEMPass());
+}
+
+void M68kPassConfig::addPreRegAlloc() {
+  addPass(createM68kCMPLivenessPass());
 }

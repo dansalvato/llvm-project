@@ -42,6 +42,12 @@ FunctionPass *createM68kGlobalBaseRegPass();
 /// emission so that all possible MOVEM are already in place.
 FunctionPass *createM68kCollapseMOVEMPass();
 
+/// The pass ensures registers used as operands in compare instructions remain
+/// live until the end of the block. This way, post-RA COPY instructions become
+/// easier to move to before the compare, since they will not reuse the same
+/// register(s) being used for the compare.
+FunctionPass *createM68kCMPLivenessPass();
+
 InstructionSelector *
 createM68kInstructionSelector(const M68kTargetMachine &, const M68kSubtarget &,
                               const M68kRegisterBankInfo &);
@@ -51,6 +57,7 @@ void initializeM68kDAGToDAGISelLegacyPass(PassRegistry &);
 void initializeM68kExpandPseudoPass(PassRegistry &);
 void initializeM68kGlobalBaseRegPass(PassRegistry &);
 void initializeM68kCollapseMOVEMPass(PassRegistry &);
+void initializeM68kCMPLivenessPass(PassRegistry &);
 
 } // namespace llvm
 
