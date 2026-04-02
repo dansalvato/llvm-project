@@ -796,6 +796,22 @@ void M68kInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     return;
   }
 
+  // CCR is live, maybe we can move this instruction up before CCR is defined?
+  auto CCRDefI = std::prev(MI);
+  UsedRegs.stepBackward(*--InstUpToI);
+  while (!CCRDefI->definesRegister(M68k::CCR, &TRI) && UsedRegs.available(DstReg)) {
+    UsedRegs.stepBackward(*--InstUpToI);
+    CCRDefI = std::prev(CCRDefI);
+  }
+
+  // If both CCR and destination register are available, we can safely emit the
+  // instruction before the compare
+  if (UsedRegs.available(M68k::CCR) && UsedRegs.available(DstReg)) {
+    BuildMI(MBB, CCRDefI, DL, get(Opc), DstReg)
+        .addReg(SrcReg, getKillRegState(KillSrc));
+    return;
+  }
+
   // CCR is live, so we must restore it after the copy. Prepare push/pop ops.
   // 68000 must use MOVE from SR, 68010+ must use MOVE from CCR. In either
   // case, upon moving back, MOVE to CCR will mask out the upper byte anyway.
