@@ -134,7 +134,7 @@ multiclass MxBITPatR<MxInst INSTd, MxInst INSTi, SDNode NODE> {
 def : Pat<(NODE MxType32d.VT:$dst, MxType32d.VT:$bitno),
           (INSTd MxType32d.ROp:$dst, MxType32d.ROp:$bitno)>;
 def : Pat<(NODE MxType32d.VT:$dst, MxType32d.IPat:$bitno),
-          (INSTi MxType32d.ROp:$dst, MxType32d.IOp:$bitno)>;
+          (INSTi MxType32d.ROp:$dst, imm:$bitno)>;
 }
 
 defm : MxBITPatR<BTST32dd, BTST32di, MxBtst>;
@@ -144,7 +144,7 @@ multiclass MxBITPatM<MxInst INSTd, MxInst INSTi, SDNode NODE, MxType TYPE,
 def : Pat<(NODE (TYPE.Load MEMPat:$dst), TYPE.VT:$bitno),
           (INSTd MEMOpd:$dst, TYPE.ROp:$bitno)>;
 def : Pat<(NODE (TYPE.Load MEMPat:$dst), TYPE.IPat:$bitno),
-          (INSTi MEMOpd:$dst, TYPE.IOp:$bitno)>;
+          (INSTi MEMOpd:$dst, imm:$bitno)>;
 }
 
 defm : MxBITPatM<BTST8qd, BTST8qi, MxBtst,
