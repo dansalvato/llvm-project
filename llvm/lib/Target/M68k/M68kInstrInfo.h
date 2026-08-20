@@ -129,6 +129,69 @@ static inline unsigned GetCondBranchFromCond(M68k::CondCode CC) {
   }
 }
 
+static inline unsigned GetCondBranchFromScc(unsigned SETCC) {
+  switch (SETCC) {
+  default:
+    llvm_unreachable("Not a SETcc instruction!");
+  case M68k::SETd8eq:
+  case M68k::SETj8eq:
+  case M68k::SETp8eq:
+    return M68k::Beq8;
+  case M68k::SETd8ne:
+  case M68k::SETj8ne:
+  case M68k::SETp8ne:
+    return M68k::Bne8;
+  case M68k::SETd8lt:
+  case M68k::SETj8lt:
+  case M68k::SETp8lt:
+    return M68k::Blt8;
+  case M68k::SETd8ge:
+  case M68k::SETj8ge:
+  case M68k::SETp8ge:
+    return M68k::Bge8;
+  case M68k::SETd8le:
+  case M68k::SETj8le:
+  case M68k::SETp8le:
+    return M68k::Ble8;
+  case M68k::SETd8gt:
+  case M68k::SETj8gt:
+  case M68k::SETp8gt:
+    return M68k::Bgt8;
+  case M68k::SETd8cs:
+  case M68k::SETj8cs:
+  case M68k::SETp8cs:
+    return M68k::Bcs8;
+  case M68k::SETd8cc:
+  case M68k::SETj8cc:
+  case M68k::SETp8cc:
+    return M68k::Bcc8;
+  case M68k::SETd8ls:
+  case M68k::SETj8ls:
+  case M68k::SETp8ls:
+    return M68k::Bls8;
+  case M68k::SETd8hi:
+  case M68k::SETj8hi:
+  case M68k::SETp8hi:
+    return M68k::Bhi8;
+  case M68k::SETd8pl:
+  case M68k::SETj8pl:
+  case M68k::SETp8pl:
+    return M68k::Bpl8;
+  case M68k::SETd8mi:
+  case M68k::SETj8mi:
+  case M68k::SETp8mi:
+    return M68k::Bmi8;
+  case M68k::SETd8vc:
+  case M68k::SETj8vc:
+  case M68k::SETp8vc:
+    return M68k::Bvc8;
+  case M68k::SETd8vs:
+  case M68k::SETj8vs:
+  case M68k::SETp8vs:
+    return M68k::Bvs8;
+  }
+}
+
 static inline M68k::CondCode GetCondFromBranchOpc(unsigned Opcode) {
   switch (Opcode) {
   default:
@@ -326,6 +389,16 @@ public:
   void buildClearRegister(Register Reg, MachineBasicBlock &MBB,
                           MachineBasicBlock::iterator Iter, DebugLoc &DL,
                           bool AllowSideEffects = true) const override;
+
+  bool analyzeCompare(const MachineInstr &MI, Register &SrcReg,
+                      Register &SrcReg2, int64_t &Mask, int64_t &Value)
+                      const override;
+
+  bool optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
+                            Register SrcReg2, int64_t Mask, int64_t Value,
+                            const MachineRegisterInfo *MRI) const override;
+
+  bool isAsCheapAsAMove(const MachineInstr &MI) const override;
 
   /// Return a virtual register initialized with the global base register
   /// value. Output instructions required to initialize the register in the

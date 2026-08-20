@@ -138,13 +138,6 @@ bool M68kInstrInfo::AnalyzeBranchImpl(MachineBasicBlock &MBB,
       Cond.clear();
       FBB = nullptr;
 
-      // Erase the JMP if it's equivalent to a fall-through.
-      if (MBB.isLayoutSuccessor(UncondBranch.second)) {
-        TBB = nullptr;
-        EraseList.push_back(*iter);
-        UncondBranch = {MBB.rend(), nullptr};
-      }
-
       continue;
     }
 
@@ -660,6 +653,65 @@ void M68kInstrInfo::buildClearRegister(Register Reg, MachineBasicBlock &MBB,
         "buildClearRegister is not implemented for " + RI.getRegAsmName(Reg));
 }
 
+// NOTE: analyzeCompare() and optimizeCompareInstr() are run before pseudo
+// expansion (and before regalloc)
+bool M68kInstrInfo::analyzeCompare(const MachineInstr &MI, Register &SrcReg,
+                                   Register &SrcReg2, int64_t &Mask,
+                                   int64_t &Value) const {
+  auto Op0 = MI.getOperand(0);
+  auto Op1 = MI.getOperand(1);
+
+  SrcReg = 0;
+  SrcReg2 = 0;
+  Mask = -1;
+  Value = 0;
+
+  if (Op0.isImm())
+    Value = Op0.getImm();
+  else if (Op0.isReg())
+    SrcReg2 = Op0.getReg();
+
+  if (Op1.isReg())
+    SrcReg = Op1.getReg();
+  else
+    return false;
+
+  return true;
+}
+
+bool M68kInstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr,
+                                         Register SrcReg, Register SrcReg2,
+                                         int64_t Mask, int64_t Value,
+                                         const MachineRegisterInfo *MRI) const {
+  // As of now, we only optimize comparisons to immediate 0. See
+  // analyzeCompare().
+  if (Value != 0 || SrcReg2 != 0)
+    return false;
+
+  // Get ready to iterate backward from CmpInstr.
+  MachineBasicBlock::iterator I = CmpInstr, B = CmpInstr.getParent()->begin();
+
+  while (I != B) {
+    --I;
+    // If an instruction defs both CCR and this register, we can use that as an
+    // implicit compare instruction and get rid of this one.
+    if (I->definesRegister(M68k::CCR, &TRI) &&
+        I->definesRegister(SrcReg, &TRI)) {
+      I->clearRegisterDeads(M68k::CCR);
+      CmpInstr.eraseFromParent();
+      return true;
+    }
+
+    // If an instruction defines/clobbers CCR, or SrcReg was defined without
+    // CCR, then we need to keep the compare.
+    if (I->definesRegister(M68k::CCR, &TRI) ||
+        I->definesRegister(SrcReg, &TRI))
+      return false;
+  }
+
+  return false;
+}
+
 /// Expand a single-def pseudo instruction to a two-addr
 /// instruction with two undef reads of the register being defined.
 /// This is used for mapping:
@@ -825,9 +877,10 @@ void M68kInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   // live, the MOVE is going to kill it, so we will need to preserve it.
   LiveRegUnits UsedRegs(RI);
   UsedRegs.addLiveOuts(MBB);
-  auto InstUpToI = MBB.end();
-  while (InstUpToI != MI) {
-    UsedRegs.stepBackward(*--InstUpToI);
+  auto MBBEnd = MBB.end();
+  auto I = MBBEnd;
+  while (I != MI) {
+    UsedRegs.stepBackward(*--I);
   }
 
   if (SrcReg == M68k::CCR) {
@@ -840,6 +893,33 @@ void M68kInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     return;
   }
   if (UsedRegs.available(M68k::CCR)) {
+    BuildMI(MBB, MI, DL, get(Opc), DstReg)
+        .addReg(SrcReg, getKillRegState(KillSrc));
+    return;
+  }
+
+  // CCR is live, but we only have to back it up if it's being used for
+  // something other than the extend bit, which is unaffected by copy.
+  bool BackupCCR = false;
+  const auto *TRI = Subtarget.getRegisterInfo();
+  while (!BackupCCR && I != MBBEnd && !I->killsRegister(M68k::CCR, TRI)) {
+    if (!(++I)->readsRegister(M68k::CCR, TRI))
+      continue;
+    switch (I->getOpcode()) {
+      default:
+        BackupCCR = true;
+        break;
+      case M68k::ADDX8dd:
+      case M68k::ADDX16dd:
+      case M68k::ADDX32dd:
+      case M68k::SUBX8dd:
+      case M68k::SUBX16dd:
+      case M68k::SUBX32dd:
+        continue;
+    }
+  }
+
+  if (!BackupCCR) {
     BuildMI(MBB, MI, DL, get(Opc), DstReg)
         .addReg(SrcReg, getKillRegState(KillSrc));
     return;
@@ -1005,6 +1085,19 @@ M68kInstrInfo::getSerializableDirectMachineOperandTargetFlags() const {
       {MO_TLSIE, "m68k-tlsie"},
       {MO_TLSLE, "m68k-tlsle"}};
   return ArrayRef(TargetFlags);
+}
+
+bool M68kInstrInfo::isAsCheapAsAMove(const MachineInstr &MI) const {
+  switch (MI.getOpcode()) {
+    default:
+      return MI.isAsCheapAsAMove();
+    case M68k::MOVI8di:
+    case M68k::MOVI16ri:
+    case M68k::MOVI32ri: {
+      int64_t Imm = MI.getOperand(1).getImm();
+      return (Imm >= -128 && Imm < 128);
+    }
+  }
 }
 
 #undef DEBUG_TYPE

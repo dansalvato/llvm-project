@@ -137,7 +137,6 @@ M68kTargetLowering::M68kTargetLowering(const M68kTargetMachine &TM,
   }
 
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
-  setOperationAction(ISD::BRCOND, MVT::Other, Custom);
 
   for (auto VT : {MVT::i8, MVT::i16, MVT::i32}) {
     setOperationAction(ISD::BR_CC, VT, Expand);
@@ -1416,8 +1415,6 @@ SDValue M68kTargetLowering::LowerOperation(SDValue Op,
     return LowerSETCCCARRY(Op, DAG);
   case ISD::SELECT:
     return LowerSELECT(Op, DAG);
-  case ISD::BRCOND:
-    return LowerBRCOND(Op, DAG);
   case ISD::ADDC:
   case ISD::ADDE:
   case ISD::SUBC:
@@ -1554,20 +1551,6 @@ bool M68kTargetLowering::decomposeMulByConstant(LLVMContext &Context, EVT VT,
   return VT.bitsLE(MVT::i32) || Subtarget.atLeastM68020();
 }
 
-static bool isOverflowArithmetic(unsigned Opcode) {
-  switch (Opcode) {
-  case ISD::UADDO:
-  case ISD::SADDO:
-  case ISD::USUBO:
-  case ISD::SSUBO:
-  case ISD::UMULO:
-  case ISD::SMULO:
-    return true;
-  default:
-    return false;
-  }
-}
-
 static void lowerOverflowArithmetic(SDValue Op, SelectionDAG &DAG,
                                     SDValue &Result, SDValue &CCR,
                                     unsigned &CC) {
@@ -1667,78 +1650,6 @@ SDValue M68kTargetLowering::LowerXALUO(SDValue Op, SelectionDAG &DAG) const {
   }
 
   return DAG.getNode(ISD::MERGE_VALUES, DL, N->getVTList(), Result, Overflow);
-}
-
-/// Create a BTST (Bit Test) node - Test bit \p BitNo in \p Src and set
-/// condition according to equal/not-equal condition code \p CC.
-static SDValue getBitTestCondition(SDValue Src, SDValue BitNo, ISD::CondCode CC,
-                                   const SDLoc &DL, SelectionDAG &DAG) {
-  // If Src is i8, promote it to i32 with any_extend.  There is no i8 BTST
-  // instruction.  Since the shift amount is in-range-or-undefined, we know
-  // that doing a bittest on the i32 value is ok.
-  if (Src.getValueType() == MVT::i8 || Src.getValueType() == MVT::i16)
-    Src = DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i32, Src);
-
-  // If the operand types disagree, extend the shift amount to match.  Since
-  // BTST ignores high bits (like shifts) we can use anyextend.
-  if (Src.getValueType() != BitNo.getValueType())
-    BitNo = DAG.getNode(ISD::ANY_EXTEND, DL, Src.getValueType(), BitNo);
-
-  SDValue BTST = DAG.getNode(M68kISD::BTST, DL, MVT::i8, Src, BitNo);
-
-  // NOTE BTST sets CCR.Z flag if bit is 0, same as AND with bitmask
-  M68k::CondCode Cond = CC == ISD::SETEQ ? M68k::COND_EQ : M68k::COND_NE;
-  return DAG.getNode(M68kISD::SETCC, DL, MVT::i8,
-                     DAG.getConstant(Cond, DL, MVT::i8), BTST);
-}
-
-/// Result of 'and' is compared against zero. Change to a BTST node if possible.
-static SDValue LowerAndToBTST(SDValue And, ISD::CondCode CC, const SDLoc &DL,
-                              SelectionDAG &DAG) {
-  SDValue Op0 = And.getOperand(0);
-  SDValue Op1 = And.getOperand(1);
-  if (Op0.getOpcode() == ISD::TRUNCATE)
-    Op0 = Op0.getOperand(0);
-  if (Op1.getOpcode() == ISD::TRUNCATE)
-    Op1 = Op1.getOperand(0);
-
-  SDValue LHS, RHS;
-  if (Op1.getOpcode() == ISD::SHL)
-    std::swap(Op0, Op1);
-  if (Op0.getOpcode() == ISD::SHL) {
-    if (isOneConstant(Op0.getOperand(0))) {
-      // If we looked past a truncate, check that it's only truncating away
-      // known zeros.
-      unsigned BitWidth = Op0.getValueSizeInBits();
-      unsigned AndBitWidth = And.getValueSizeInBits();
-      if (BitWidth > AndBitWidth) {
-        auto Known = DAG.computeKnownBits(Op0);
-        if (Known.countMinLeadingZeros() < BitWidth - AndBitWidth)
-          return SDValue();
-      }
-      LHS = Op1;
-      RHS = Op0.getOperand(1);
-    }
-  } else if (auto *AndRHS = dyn_cast<ConstantSDNode>(Op1)) {
-    uint64_t AndRHSVal = AndRHS->getZExtValue();
-    SDValue AndLHS = Op0;
-
-    if (AndRHSVal == 1 && AndLHS.getOpcode() == ISD::SRL) {
-      LHS = AndLHS.getOperand(0);
-      RHS = AndLHS.getOperand(1);
-    }
-
-    // Use BTST if the immediate can't be encoded in a TEST instruction.
-    if (!isUInt<32>(AndRHSVal) && isPowerOf2_64(AndRHSVal)) {
-      LHS = AndLHS;
-      RHS = DAG.getConstant(Log2_64_Ceil(AndRHSVal), DL, LHS.getValueType());
-    }
-  }
-
-  if (LHS.getNode())
-    return getBitTestCondition(LHS, RHS, CC, DL, DAG);
-
-  return SDValue();
 }
 
 static M68k::CondCode TranslateIntegerM68kCC(ISD::CondCode SetCCOpcode) {
@@ -1851,315 +1762,6 @@ static unsigned TranslateM68kCC(ISD::CondCode SetCCOpcode, const SDLoc &DL,
   }
 }
 
-// Convert (truncate (srl X, N) to i1) to (bt X, N)
-static SDValue LowerTruncateToBTST(SDValue Op, ISD::CondCode CC,
-                                   const SDLoc &DL, SelectionDAG &DAG) {
-
-  assert(Op.getOpcode() == ISD::TRUNCATE && Op.getValueType() == MVT::i1 &&
-         "Expected TRUNCATE to i1 node");
-
-  if (Op.getOperand(0).getOpcode() != ISD::SRL)
-    return SDValue();
-
-  SDValue ShiftRight = Op.getOperand(0);
-  return getBitTestCondition(ShiftRight.getOperand(0), ShiftRight.getOperand(1),
-                             CC, DL, DAG);
-}
-
-/// \brief return true if \c Op has a use that doesn't just read flags.
-static bool hasNonFlagsUse(SDValue Op) {
-  for (SDNode::use_iterator UI = Op->use_begin(), UE = Op->use_end(); UI != UE;
-       ++UI) {
-    SDNode *User = UI->getUser();
-    unsigned UOpNo = UI->getOperandNo();
-    if (User->getOpcode() == ISD::TRUNCATE && User->hasOneUse()) {
-      // Look past truncate.
-      UOpNo = User->use_begin()->getOperandNo();
-      User = User->use_begin()->getUser();
-    }
-
-    if (User->getOpcode() != ISD::BRCOND && User->getOpcode() != ISD::SETCC &&
-        !(User->getOpcode() == ISD::SELECT && UOpNo == 0))
-      return true;
-  }
-  return false;
-}
-
-SDValue M68kTargetLowering::EmitTest(SDValue Op, unsigned M68kCC,
-                                     const SDLoc &DL, SelectionDAG &DAG) const {
-
-  // CF and OF aren't always set the way we want. Determine which
-  // of these we need.
-  bool NeedCF = false;
-  bool NeedOF = false;
-  switch (M68kCC) {
-  default:
-    break;
-  case M68k::COND_HI:
-  case M68k::COND_CC:
-  case M68k::COND_CS:
-  case M68k::COND_LS:
-    NeedCF = true;
-    break;
-  case M68k::COND_GT:
-  case M68k::COND_GE:
-  case M68k::COND_LT:
-  case M68k::COND_LE:
-  case M68k::COND_VS:
-  case M68k::COND_VC: {
-    // Check if we really need to set the
-    // Overflow flag. If NoSignedWrap is present
-    // that is not actually needed.
-    switch (Op->getOpcode()) {
-    case ISD::ADD:
-    case ISD::SUB:
-    case ISD::MUL:
-    case ISD::SHL: {
-      if (Op.getNode()->getFlags().hasNoSignedWrap())
-        break;
-      [[fallthrough]];
-    }
-    default:
-      NeedOF = true;
-      break;
-    }
-    break;
-  }
-  }
-  // See if we can use the CCR value from the operand instead of
-  // doing a separate TEST. TEST always sets OF and CF to 0, so unless
-  // we prove that the arithmetic won't overflow, we can't use OF or CF.
-  if (Op.getResNo() != 0 || NeedOF || NeedCF) {
-    // Emit a CMP with 0, which is the TEST pattern.
-    return DAG.getNode(M68kISD::CMP, DL, MVT::i8,
-                       DAG.getConstant(0, DL, Op.getValueType()), Op);
-  }
-  unsigned Opcode = 0;
-  unsigned NumOperands = 0;
-
-  // Truncate operations may prevent the merge of the SETCC instruction
-  // and the arithmetic instruction before it. Attempt to truncate the operands
-  // of the arithmetic instruction and use a reduced bit-width instruction.
-  bool NeedTruncation = false;
-  SDValue ArithOp = Op;
-  if (Op->getOpcode() == ISD::TRUNCATE && Op->hasOneUse()) {
-    SDValue Arith = Op->getOperand(0);
-    // Both the trunc and the arithmetic op need to have one user each.
-    if (Arith->hasOneUse())
-      switch (Arith.getOpcode()) {
-      default:
-        break;
-      case ISD::ADD:
-      case ISD::SUB:
-      case ISD::AND:
-      case ISD::OR:
-      case ISD::XOR: {
-        NeedTruncation = true;
-        ArithOp = Arith;
-      }
-      }
-  }
-
-  // NOTICE: In the code below we use ArithOp to hold the arithmetic operation
-  // which may be the result of a CAST.  We use the variable 'Op', which is the
-  // non-casted variable when we check for possible users.
-  switch (ArithOp.getOpcode()) {
-  case ISD::ADD:
-    Opcode = M68kISD::ADD;
-    NumOperands = 2;
-    break;
-  case ISD::SHL:
-  case ISD::SRL:
-    // If we have a constant logical shift that's only used in a comparison
-    // against zero turn it into an equivalent AND. This allows turning it into
-    // a TEST instruction later.
-    if ((M68kCC == M68k::COND_EQ || M68kCC == M68k::COND_NE) &&
-        Op->hasOneUse() && isa<ConstantSDNode>(Op->getOperand(1)) &&
-        !hasNonFlagsUse(Op)) {
-      EVT VT = Op.getValueType();
-      unsigned BitWidth = VT.getSizeInBits();
-      unsigned ShAmt = Op->getConstantOperandVal(1);
-      if (ShAmt >= BitWidth) // Avoid undefined shifts.
-        break;
-      APInt Mask = ArithOp.getOpcode() == ISD::SRL
-                       ? APInt::getHighBitsSet(BitWidth, BitWidth - ShAmt)
-                       : APInt::getLowBitsSet(BitWidth, BitWidth - ShAmt);
-      if (!Mask.isSignedIntN(32)) // Avoid large immediates.
-        break;
-      Op = DAG.getNode(ISD::AND, DL, VT, Op->getOperand(0),
-                       DAG.getConstant(Mask, DL, VT));
-    }
-    break;
-
-  case ISD::AND:
-    // If the primary 'and' result isn't used, don't bother using
-    // M68kISD::AND, because a TEST instruction will be better.
-    if (!hasNonFlagsUse(Op)) {
-      SDValue Op0 = ArithOp->getOperand(0);
-      SDValue Op1 = ArithOp->getOperand(1);
-      EVT VT = ArithOp.getValueType();
-      bool IsAndn = isBitwiseNot(Op0) || isBitwiseNot(Op1);
-      bool IsLegalAndnType = VT == MVT::i32 || VT == MVT::i64;
-
-      // But if we can combine this into an ANDN operation, then create an AND
-      // now and allow it to be pattern matched into an ANDN.
-      if (/*!Subtarget.hasBMI() ||*/ !IsAndn || !IsLegalAndnType)
-        break;
-    }
-    [[fallthrough]];
-  case ISD::SUB:
-  case ISD::OR:
-  case ISD::XOR:
-    // Due to the ISEL shortcoming noted above, be conservative if this op is
-    // likely to be selected as part of a load-modify-store instruction.
-    for (const auto *U : Op.getNode()->users())
-      if (U->getOpcode() == ISD::STORE)
-        goto default_case;
-
-    // Otherwise use a regular CCR-setting instruction.
-    switch (ArithOp.getOpcode()) {
-    default:
-      llvm_unreachable("unexpected operator!");
-    case ISD::SUB:
-      Opcode = M68kISD::SUB;
-      break;
-    case ISD::XOR:
-      Opcode = M68kISD::XOR;
-      break;
-    case ISD::AND:
-      Opcode = M68kISD::AND;
-      break;
-    case ISD::OR:
-      Opcode = M68kISD::OR;
-      break;
-    }
-
-    NumOperands = 2;
-    break;
-  case M68kISD::ADD:
-  case M68kISD::SUB:
-  case M68kISD::OR:
-  case M68kISD::XOR:
-  case M68kISD::AND:
-    return SDValue(Op.getNode(), 1);
-  default:
-  default_case:
-    break;
-  }
-
-  // If we found that truncation is beneficial, perform the truncation and
-  // update 'Op'.
-  if (NeedTruncation) {
-    EVT VT = Op.getValueType();
-    SDValue WideVal = Op->getOperand(0);
-    EVT WideVT = WideVal.getValueType();
-    unsigned ConvertedOp = 0;
-    // Use a target machine opcode to prevent further DAGCombine
-    // optimizations that may separate the arithmetic operations
-    // from the setcc node.
-    switch (WideVal.getOpcode()) {
-    default:
-      break;
-    case ISD::ADD:
-      ConvertedOp = M68kISD::ADD;
-      break;
-    case ISD::SUB:
-      ConvertedOp = M68kISD::SUB;
-      break;
-    case ISD::AND:
-      ConvertedOp = M68kISD::AND;
-      break;
-    case ISD::OR:
-      ConvertedOp = M68kISD::OR;
-      break;
-    case ISD::XOR:
-      ConvertedOp = M68kISD::XOR;
-      break;
-    }
-
-    if (ConvertedOp) {
-      const TargetLowering &TLI = DAG.getTargetLoweringInfo();
-      if (TLI.isOperationLegal(WideVal.getOpcode(), WideVT)) {
-        SDValue V0 = DAG.getNode(ISD::TRUNCATE, DL, VT, WideVal.getOperand(0));
-        SDValue V1 = DAG.getNode(ISD::TRUNCATE, DL, VT, WideVal.getOperand(1));
-        Op = DAG.getNode(ConvertedOp, DL, VT, V0, V1);
-      }
-    }
-  }
-
-  if (Opcode == 0) {
-    // Emit a CMP with 0, which is the TEST pattern.
-    return DAG.getNode(M68kISD::CMP, DL, MVT::i8,
-                       DAG.getConstant(0, DL, Op.getValueType()), Op);
-  }
-  SDVTList VTs = DAG.getVTList(Op.getValueType(), MVT::i8);
-  SmallVector<SDValue, 4> Ops(Op->op_begin(), Op->op_begin() + NumOperands);
-
-  SDValue New = DAG.getNode(Opcode, DL, VTs, Ops);
-  DAG.ReplaceAllUsesWith(Op, New);
-  return SDValue(New.getNode(), 1);
-}
-
-/// \brief Return true if the condition is an unsigned comparison operation.
-static bool isM68kCCUnsigned(unsigned M68kCC) {
-  switch (M68kCC) {
-  default:
-    llvm_unreachable("Invalid integer condition!");
-  case M68k::COND_EQ:
-  case M68k::COND_NE:
-  case M68k::COND_CS:
-  case M68k::COND_HI:
-  case M68k::COND_LS:
-  case M68k::COND_CC:
-    return true;
-  case M68k::COND_GT:
-  case M68k::COND_GE:
-  case M68k::COND_LT:
-  case M68k::COND_LE:
-    return false;
-  }
-}
-
-SDValue M68kTargetLowering::EmitCmp(SDValue Op0, SDValue Op1, unsigned M68kCC,
-                                    const SDLoc &DL, SelectionDAG &DAG) const {
-  if (isNullConstant(Op1))
-    return EmitTest(Op0, M68kCC, DL, DAG);
-
-  assert(!(isa<ConstantSDNode>(Op1) && Op0.getValueType() == MVT::i1) &&
-         "Unexpected comparison operation for MVT::i1 operands");
-
-  if ((Op0.getValueType() == MVT::i8 || Op0.getValueType() == MVT::i16 ||
-       Op0.getValueType() == MVT::i32 || Op0.getValueType() == MVT::i64)) {
-    // Only promote the compare up to I32 if it is a 16 bit operation
-    // with an immediate.  16 bit immediates are to be avoided.
-    if ((Op0.getValueType() == MVT::i16 &&
-         (isa<ConstantSDNode>(Op0) || isa<ConstantSDNode>(Op1))) &&
-        !DAG.getMachineFunction().getFunction().hasMinSize()) {
-      unsigned ExtendOp =
-          isM68kCCUnsigned(M68kCC) ? ISD::ZERO_EXTEND : ISD::SIGN_EXTEND;
-      Op0 = DAG.getNode(ExtendOp, DL, MVT::i32, Op0);
-      Op1 = DAG.getNode(ExtendOp, DL, MVT::i32, Op1);
-    }
-    // Use SUB instead of CMP to enable CSE between SUB and CMP.
-    SDVTList VTs = DAG.getVTList(Op0.getValueType(), MVT::i8);
-    SDValue Sub = DAG.getNode(M68kISD::SUB, DL, VTs, Op0, Op1);
-    return SDValue(Sub.getNode(), 1);
-  }
-  return DAG.getNode(M68kISD::CMP, DL, MVT::i8, Op0, Op1);
-}
-
-/// Result of 'and' or 'trunc to i1' is compared against zero.
-/// Change to a BTST node if possible.
-SDValue M68kTargetLowering::LowerToBTST(SDValue Op, ISD::CondCode CC,
-                                        const SDLoc &DL,
-                                        SelectionDAG &DAG) const {
-  if (Op.getOpcode() == ISD::AND)
-    return LowerAndToBTST(Op, CC, DL, DAG);
-  if (Op.getOpcode() == ISD::TRUNCATE && Op.getValueType() == MVT::i1)
-    return LowerTruncateToBTST(Op, CC, DL, DAG);
-  return SDValue();
-}
-
 SDValue M68kTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   MVT VT = Op.getSimpleValueType();
   assert(VT == MVT::i8 && "SetCC type must be 8-bit integer");
@@ -2169,59 +1771,12 @@ SDValue M68kTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   SDLoc DL(Op);
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
 
-  // Optimize to BTST if possible.
-  // Lower (X & (1 << N)) == 0 to BTST(X, N).
-  // Lower ((X >>u N) & 1) != 0 to BTST(X, N).
-  // Lower ((X >>s N) & 1) != 0 to BTST(X, N).
-  // Lower (trunc (X >> N) to i1) to BTST(X, N).
-  if (Op0.hasOneUse() && isNullConstant(Op1) &&
-      (CC == ISD::SETEQ || CC == ISD::SETNE)) {
-    if (SDValue NewSetCC = LowerToBTST(Op0, CC, DL, DAG)) {
-      if (VT == MVT::i1)
-        return DAG.getNode(ISD::TRUNCATE, DL, MVT::i1, NewSetCC);
-      return NewSetCC;
-    }
-  }
-
-  // Look for X == 0, X == 1, X != 0, or X != 1.  We can simplify some forms of
-  // these.
-  if ((isOneConstant(Op1) || isNullConstant(Op1)) &&
-      (CC == ISD::SETEQ || CC == ISD::SETNE)) {
-
-    // If the input is a setcc, then reuse the input setcc or use a new one with
-    // the inverted condition.
-    if (Op0.getOpcode() == M68kISD::SETCC) {
-      M68k::CondCode CCode = (M68k::CondCode)Op0.getConstantOperandVal(0);
-      bool Invert = (CC == ISD::SETNE) ^ isNullConstant(Op1);
-      if (!Invert)
-        return Op0;
-
-      CCode = M68k::GetOppositeBranchCondition(CCode);
-      SDValue SetCC =
-          DAG.getNode(M68kISD::SETCC, DL, MVT::i8,
-                      DAG.getConstant(CCode, DL, MVT::i8), Op0.getOperand(1));
-      if (VT == MVT::i1)
-        return DAG.getNode(ISD::TRUNCATE, DL, MVT::i1, SetCC);
-      return SetCC;
-    }
-  }
-  if (Op0.getValueType() == MVT::i1 && (CC == ISD::SETEQ || CC == ISD::SETNE)) {
-    if (isOneConstant(Op1)) {
-      ISD::CondCode NewCC = ISD::GlobalISel::getSetCCInverse(CC, true);
-      return DAG.getSetCC(DL, VT, Op0, DAG.getConstant(0, DL, MVT::i1), NewCC);
-    }
-    if (!isNullConstant(Op1)) {
-      SDValue Xor = DAG.getNode(ISD::XOR, DL, MVT::i1, Op0, Op1);
-      return DAG.getSetCC(DL, VT, Xor, DAG.getConstant(0, DL, MVT::i1), CC);
-    }
-  }
-
   bool IsFP = Op1.getSimpleValueType().isFloatingPoint();
   unsigned M68kCC = TranslateM68kCC(CC, DL, IsFP, Op0, Op1, DAG);
   if (M68kCC == M68k::COND_INVALID)
     return SDValue();
 
-  SDValue CCR = EmitCmp(Op0, Op1, M68kCC, DL, DAG);
+  SDValue CCR = DAG.getNode(M68kISD::CMP, DL, MVT::i8, Op1, Op0);
   return DAG.getNode(M68kISD::SETCC, DL, MVT::i8,
                      DAG.getConstant(M68kCC, DL, MVT::i8), CCR);
 }
@@ -2250,378 +1805,14 @@ SDValue M68kTargetLowering::LowerSETCCCARRY(SDValue Op,
                      DAG.getConstant(CC, DL, MVT::i8), Cmp.getValue(1));
 }
 
-/// Return true if opcode is a M68k logical comparison.
-static bool isM68kLogicalCmp(SDValue Op) {
-  unsigned Opc = Op.getNode()->getOpcode();
-  if (Opc == M68kISD::CMP)
-    return true;
-  if (Op.getResNo() == 1 &&
-      (Opc == M68kISD::ADD || Opc == M68kISD::SUB || Opc == M68kISD::ADDX ||
-       Opc == M68kISD::SUBX || Opc == M68kISD::SMUL || Opc == M68kISD::UMUL ||
-       Opc == M68kISD::OR || Opc == M68kISD::XOR || Opc == M68kISD::AND))
-    return true;
-
-  if (Op.getResNo() == 2 && Opc == M68kISD::UMUL)
-    return true;
-
-  return false;
-}
-
-static bool isTruncWithZeroHighBitsInput(SDValue V, SelectionDAG &DAG) {
-  if (V.getOpcode() != ISD::TRUNCATE)
-    return false;
-
-  SDValue VOp0 = V.getOperand(0);
-  unsigned InBits = VOp0.getValueSizeInBits();
-  unsigned Bits = V.getValueSizeInBits();
-  return DAG.MaskedValueIsZero(VOp0,
-                               APInt::getHighBitsSet(InBits, InBits - Bits));
-}
-
 SDValue M68kTargetLowering::LowerSELECT(SDValue Op, SelectionDAG &DAG) const {
-  bool addTest = true;
-  SDValue Cond = Op.getOperand(0);
-  SDValue Op1 = Op.getOperand(1);
-  SDValue Op2 = Op.getOperand(2);
+  SDValue Bool = Op.getOperand(0);
+  SDValue TrueVal = Op.getOperand(1);
+  SDValue FalseVal = Op.getOperand(2);
   SDLoc DL(Op);
-  SDValue CC;
 
-  if (Cond.getOpcode() == ISD::SETCC) {
-    if (SDValue NewCond = LowerSETCC(Cond, DAG))
-      Cond = NewCond;
-  }
-
-  // (select (x == 0), -1, y) -> (sign_bit (x - 1)) | y
-  // (select (x == 0), y, -1) -> ~(sign_bit (x - 1)) | y
-  // (select (x != 0), y, -1) -> (sign_bit (x - 1)) | y
-  // (select (x != 0), -1, y) -> ~(sign_bit (x - 1)) | y
-  if (Cond.getOpcode() == M68kISD::SETCC &&
-      Cond.getOperand(1).getOpcode() == M68kISD::CMP &&
-      isNullConstant(Cond.getOperand(1).getOperand(0))) {
-    SDValue Cmp = Cond.getOperand(1);
-
-    unsigned CondCode = Cond.getConstantOperandVal(0);
-
-    if ((isAllOnesConstant(Op1) || isAllOnesConstant(Op2)) &&
-        (CondCode == M68k::COND_EQ || CondCode == M68k::COND_NE)) {
-      SDValue Y = isAllOnesConstant(Op2) ? Op1 : Op2;
-
-      SDValue CmpOp0 = Cmp.getOperand(1);
-      // Apply further optimizations for special cases
-      // (select (x != 0), -1, 0) -> neg & sbb
-      // (select (x == 0), 0, -1) -> neg & sbb
-      if (isNullConstant(Y) &&
-          (isAllOnesConstant(Op1) == (CondCode == M68k::COND_NE))) {
-
-        SDVTList VTs = DAG.getVTList(CmpOp0.getValueType(), MVT::i32);
-
-        SDValue Neg =
-            DAG.getNode(M68kISD::SUB, DL, VTs,
-                        DAG.getConstant(0, DL, CmpOp0.getValueType()), CmpOp0);
-
-        SDValue Res = DAG.getNode(M68kISD::SETCC_CARRY, DL, Op.getValueType(),
-                                  DAG.getConstant(M68k::COND_CS, DL, MVT::i8),
-                                  SDValue(Neg.getNode(), 1));
-        return Res;
-      }
-
-      Cmp = DAG.getNode(M68kISD::CMP, DL, MVT::i8,
-                        DAG.getConstant(1, DL, CmpOp0.getValueType()), CmpOp0);
-
-      SDValue Res = // Res = 0 or -1.
-          DAG.getNode(M68kISD::SETCC_CARRY, DL, Op.getValueType(),
-                      DAG.getConstant(M68k::COND_CS, DL, MVT::i8), Cmp);
-
-      if (isAllOnesConstant(Op1) != (CondCode == M68k::COND_EQ))
-        Res = DAG.getNOT(DL, Res, Res.getValueType());
-
-      if (!isNullConstant(Op2))
-        Res = DAG.getNode(ISD::OR, DL, Res.getValueType(), Res, Y);
-      return Res;
-    }
-  }
-
-  // Look past (and (setcc_carry (cmp ...)), 1).
-  if (Cond.getOpcode() == ISD::AND &&
-      Cond.getOperand(0).getOpcode() == M68kISD::SETCC_CARRY &&
-      isOneConstant(Cond.getOperand(1)))
-    Cond = Cond.getOperand(0);
-
-  // If condition flag is set by a M68kISD::CMP, then use it as the condition
-  // setting operand in place of the M68kISD::SETCC.
-  unsigned CondOpcode = Cond.getOpcode();
-  if (CondOpcode == M68kISD::SETCC || CondOpcode == M68kISD::SETCC_CARRY) {
-    CC = Cond.getOperand(0);
-
-    SDValue Cmp = Cond.getOperand(1);
-    unsigned Opc = Cmp.getOpcode();
-
-    bool IllegalFPCMov = false;
-
-    if ((isM68kLogicalCmp(Cmp) && !IllegalFPCMov) || Opc == M68kISD::BTST) {
-      Cond = Cmp;
-      addTest = false;
-    }
-  } else if (isOverflowArithmetic(CondOpcode)) {
-    // Result is unused here.
-    SDValue Result;
-    unsigned CCode;
-    lowerOverflowArithmetic(Cond, DAG, Result, Cond, CCode);
-    CC = DAG.getConstant(CCode, DL, MVT::i8);
-    addTest = false;
-  }
-
-  if (addTest) {
-    // Look past the truncate if the high bits are known zero.
-    if (isTruncWithZeroHighBitsInput(Cond, DAG))
-      Cond = Cond.getOperand(0);
-
-    // We know the result of AND is compared against zero. Try to match
-    // it to BT.
-    if (Cond.getOpcode() == ISD::AND && Cond.hasOneUse()) {
-      if (SDValue NewSetCC = LowerToBTST(Cond, ISD::SETNE, DL, DAG)) {
-        CC = NewSetCC.getOperand(0);
-        Cond = NewSetCC.getOperand(1);
-        addTest = false;
-      }
-    }
-  }
-
-  if (addTest) {
-    CC = DAG.getConstant(M68k::COND_NE, DL, MVT::i8);
-    Cond = EmitTest(Cond, M68k::COND_NE, DL, DAG);
-  }
-
-  // a <  b ? -1 :  0 -> RES = ~setcc_carry
-  // a <  b ?  0 : -1 -> RES = setcc_carry
-  // a >= b ? -1 :  0 -> RES = setcc_carry
-  // a >= b ?  0 : -1 -> RES = ~setcc_carry
-  if (Cond.getOpcode() == M68kISD::SUB) {
-    unsigned CondCode = CC->getAsZExtVal();
-
-    if ((CondCode == M68k::COND_CC || CondCode == M68k::COND_CS) &&
-        (isAllOnesConstant(Op1) || isAllOnesConstant(Op2)) &&
-        (isNullConstant(Op1) || isNullConstant(Op2))) {
-      SDValue Res =
-          DAG.getNode(M68kISD::SETCC_CARRY, DL, Op.getValueType(),
-                      DAG.getConstant(M68k::COND_CS, DL, MVT::i8), Cond);
-      if (isAllOnesConstant(Op1) != (CondCode == M68k::COND_CS))
-        return DAG.getNOT(DL, Res, Res.getValueType());
-      return Res;
-    }
-  }
-
-  // M68k doesn't have an i8 cmov. If both operands are the result of a
-  // truncate widen the cmov and push the truncate through. This avoids
-  // introducing a new branch during isel and doesn't add any extensions.
-  if (Op.getValueType() == MVT::i8 && Op1.getOpcode() == ISD::TRUNCATE &&
-      Op2.getOpcode() == ISD::TRUNCATE) {
-    SDValue T1 = Op1.getOperand(0), T2 = Op2.getOperand(0);
-    if (T1.getValueType() == T2.getValueType() &&
-        // Block CopyFromReg so partial register stalls are avoided.
-        T1.getOpcode() != ISD::CopyFromReg &&
-        T2.getOpcode() != ISD::CopyFromReg) {
-      SDValue Cmov =
-          DAG.getNode(M68kISD::CMOV, DL, T1.getValueType(), T2, T1, CC, Cond);
-      return DAG.getNode(ISD::TRUNCATE, DL, Op.getValueType(), Cmov);
-    }
-  }
-
-  // Simple optimization when Cond is a constant to avoid generating
-  // M68kISD::CMOV if possible.
-  // TODO: Generalize this to use SelectionDAG::computeKnownBits.
-  if (auto *Const = dyn_cast<ConstantSDNode>(Cond.getNode())) {
-    const APInt &C = Const->getAPIntValue();
-    if (C.countr_zero() >= 5)
-      return Op2;
-    else if (C.countr_one() >= 5)
-      return Op1;
-  }
-
-  // M68kISD::CMOV means set the result (which is operand 1) to the RHS if
-  // condition is true.
-  SDValue Ops[] = {Op2, Op1, CC, Cond};
+  SDValue Ops[] = {TrueVal, FalseVal, Bool};
   return DAG.getNode(M68kISD::CMOV, DL, Op.getValueType(), Ops);
-}
-
-/// Return true if node is an ISD::AND or ISD::OR of two M68k::SETcc nodes
-/// each of which has no other use apart from the AND / OR.
-static bool isAndOrOfSetCCs(SDValue Op, unsigned &Opc) {
-  Opc = Op.getOpcode();
-  if (Opc != ISD::OR && Opc != ISD::AND)
-    return false;
-  return (M68k::IsSETCC(Op.getOperand(0).getOpcode()) &&
-          Op.getOperand(0).hasOneUse() &&
-          M68k::IsSETCC(Op.getOperand(1).getOpcode()) &&
-          Op.getOperand(1).hasOneUse());
-}
-
-/// Return true if node is an ISD::XOR of a M68kISD::SETCC and 1 and that the
-/// SETCC node has a single use.
-static bool isXor1OfSetCC(SDValue Op) {
-  if (Op.getOpcode() != ISD::XOR)
-    return false;
-  if (isOneConstant(Op.getOperand(1)))
-    return Op.getOperand(0).getOpcode() == M68kISD::SETCC &&
-           Op.getOperand(0).hasOneUse();
-  return false;
-}
-
-SDValue M68kTargetLowering::LowerBRCOND(SDValue Op, SelectionDAG &DAG) const {
-  bool AddTest = true;
-  SDValue Chain = Op.getOperand(0);
-  SDValue Cond = Op.getOperand(1);
-  SDValue Dest = Op.getOperand(2);
-  SDLoc DL(Op);
-  SDValue CC;
-  bool Inverted = false;
-
-  if (Cond.getOpcode() == ISD::SETCC) {
-    // Check for setcc([su]{add,sub}o == 0).
-    if (cast<CondCodeSDNode>(Cond.getOperand(2))->get() == ISD::SETEQ &&
-        isNullConstant(Cond.getOperand(1)) &&
-        Cond.getOperand(0).getResNo() == 1 &&
-        (Cond.getOperand(0).getOpcode() == ISD::SADDO ||
-         Cond.getOperand(0).getOpcode() == ISD::UADDO ||
-         Cond.getOperand(0).getOpcode() == ISD::SSUBO ||
-         Cond.getOperand(0).getOpcode() == ISD::USUBO)) {
-      Inverted = true;
-      Cond = Cond.getOperand(0);
-    } else {
-      if (SDValue NewCond = LowerSETCC(Cond, DAG))
-        Cond = NewCond;
-    }
-  }
-
-  // Look pass (and (setcc_carry (cmp ...)), 1).
-  if (Cond.getOpcode() == ISD::AND &&
-      Cond.getOperand(0).getOpcode() == M68kISD::SETCC_CARRY &&
-      isOneConstant(Cond.getOperand(1)))
-    Cond = Cond.getOperand(0);
-
-  // If condition flag is set by a M68kISD::CMP, then use it as the condition
-  // setting operand in place of the M68kISD::SETCC.
-  unsigned CondOpcode = Cond.getOpcode();
-  if (CondOpcode == M68kISD::SETCC || CondOpcode == M68kISD::SETCC_CARRY) {
-    CC = Cond.getOperand(0);
-
-    SDValue Cmp = Cond.getOperand(1);
-    unsigned Opc = Cmp.getOpcode();
-
-    if (isM68kLogicalCmp(Cmp) || Opc == M68kISD::BTST) {
-      Cond = Cmp;
-      AddTest = false;
-    } else {
-      switch (CC->getAsZExtVal()) {
-      default:
-        break;
-      case M68k::COND_VS:
-      case M68k::COND_CS:
-        // These can only come from an arithmetic instruction with overflow,
-        // e.g. SADDO, UADDO.
-        Cond = Cond.getNode()->getOperand(1);
-        AddTest = false;
-        break;
-      }
-    }
-  }
-  CondOpcode = Cond.getOpcode();
-  if (isOverflowArithmetic(CondOpcode)) {
-    SDValue Result;
-    unsigned CCode;
-    lowerOverflowArithmetic(Cond, DAG, Result, Cond, CCode);
-
-    if (Inverted)
-      CCode = M68k::GetOppositeBranchCondition((M68k::CondCode)CCode);
-    CC = DAG.getConstant(CCode, DL, MVT::i8);
-
-    AddTest = false;
-  } else {
-    unsigned CondOpc;
-    if (Cond.hasOneUse() && isAndOrOfSetCCs(Cond, CondOpc)) {
-      SDValue Cmp = Cond.getOperand(0).getOperand(1);
-      if (CondOpc == ISD::OR) {
-        // Also, recognize the pattern generated by an FCMP_UNE. We can emit
-        // two branches instead of an explicit OR instruction with a
-        // separate test.
-        if (Cmp == Cond.getOperand(1).getOperand(1) && isM68kLogicalCmp(Cmp)) {
-          CC = Cond.getOperand(0).getOperand(0);
-          Chain = DAG.getNode(M68kISD::BRCOND, DL, Op.getValueType(), Chain,
-                              Dest, CC, Cmp);
-          CC = Cond.getOperand(1).getOperand(0);
-          Cond = Cmp;
-          AddTest = false;
-        }
-      } else { // ISD::AND
-        // Also, recognize the pattern generated by an FCMP_OEQ. We can emit
-        // two branches instead of an explicit AND instruction with a
-        // separate test. However, we only do this if this block doesn't
-        // have a fall-through edge, because this requires an explicit
-        // jmp when the condition is false.
-        if (Cmp == Cond.getOperand(1).getOperand(1) && isM68kLogicalCmp(Cmp) &&
-            Op.getNode()->hasOneUse()) {
-          M68k::CondCode CCode =
-              (M68k::CondCode)Cond.getOperand(0).getConstantOperandVal(0);
-          CCode = M68k::GetOppositeBranchCondition(CCode);
-          CC = DAG.getConstant(CCode, DL, MVT::i8);
-          SDNode *User = *Op.getNode()->user_begin();
-          // Look for an unconditional branch following this conditional branch.
-          // We need this because we need to reverse the successors in order
-          // to implement FCMP_OEQ.
-          if (User->getOpcode() == ISD::BR) {
-            SDValue FalseBB = User->getOperand(1);
-            SDNode *NewBR =
-                DAG.UpdateNodeOperands(User, User->getOperand(0), Dest);
-            assert(NewBR == User);
-            (void)NewBR;
-            Dest = FalseBB;
-
-            Chain = DAG.getNode(M68kISD::BRCOND, DL, Op.getValueType(), Chain,
-                                Dest, CC, Cmp);
-            M68k::CondCode CCode =
-                (M68k::CondCode)Cond.getOperand(1).getConstantOperandVal(0);
-            CCode = M68k::GetOppositeBranchCondition(CCode);
-            CC = DAG.getConstant(CCode, DL, MVT::i8);
-            Cond = Cmp;
-            AddTest = false;
-          }
-        }
-      }
-    } else if (Cond.hasOneUse() && isXor1OfSetCC(Cond)) {
-      // Recognize for xorb (setcc), 1 patterns. The xor inverts the condition.
-      // It should be transformed during dag combiner except when the condition
-      // is set by a arithmetics with overflow node.
-      M68k::CondCode CCode =
-          (M68k::CondCode)Cond.getOperand(0).getConstantOperandVal(0);
-      CCode = M68k::GetOppositeBranchCondition(CCode);
-      CC = DAG.getConstant(CCode, DL, MVT::i8);
-      Cond = Cond.getOperand(0).getOperand(1);
-      AddTest = false;
-    }
-  }
-
-  if (AddTest) {
-    // Look pass the truncate if the high bits are known zero.
-    if (isTruncWithZeroHighBitsInput(Cond, DAG))
-      Cond = Cond.getOperand(0);
-
-    // We know the result is compared against zero. Try to match it to BT.
-    if (Cond.hasOneUse()) {
-      if (SDValue NewSetCC = LowerToBTST(Cond, ISD::SETNE, DL, DAG)) {
-        CC = NewSetCC.getOperand(0);
-        Cond = NewSetCC.getOperand(1);
-        AddTest = false;
-      }
-    }
-  }
-
-  if (AddTest) {
-    M68k::CondCode MxCond = Inverted ? M68k::COND_EQ : M68k::COND_NE;
-    CC = DAG.getConstant(MxCond, DL, MVT::i8);
-    Cond = EmitTest(Cond, MxCond, DL, DAG);
-  }
-  return DAG.getNode(M68kISD::BRCOND, DL, Op.getValueType(), Chain, Dest, CC,
-                     Cond);
 }
 
 SDValue M68kTargetLowering::LowerADDC_ADDE_SUBC_SUBE(SDValue Op,
@@ -3067,269 +2258,64 @@ bool M68k::isCalleePop(CallingConv::ID CC, bool IsVarArg, bool GuaranteeTCO) {
   return CC == CallingConv::M68k_RTD && !IsVarArg;
 }
 
-// Return true if it is OK for this CMOV pseudo-opcode to be cascaded
-// together with other CMOV pseudo-opcodes into a single basic-block with
-// conditional jump around it.
-static bool isCMOVPseudo(MachineInstr &MI) {
-  switch (MI.getOpcode()) {
-  case M68k::CMOV8d:
-  case M68k::CMOV16d:
-  case M68k::CMOV32r:
-    return true;
-
-  default:
-    return false;
-  }
-}
-
-// The CCR operand of SelectItr might be missing a kill marker
-// because there were multiple uses of CCR, and ISel didn't know
-// which to mark. Figure out whether SelectItr should have had a
-// kill marker, and set it if it should. Returns the correct kill
-// marker value.
-static bool checkAndUpdateCCRKill(MachineBasicBlock::iterator SelectItr,
-                                  MachineBasicBlock *BB,
-                                  const TargetRegisterInfo *TRI) {
-  // Scan forward through BB for a use/def of CCR.
-  MachineBasicBlock::iterator miI(std::next(SelectItr));
-  for (MachineBasicBlock::iterator miE = BB->end(); miI != miE; ++miI) {
-    const MachineInstr &mi = *miI;
-    if (mi.readsRegister(M68k::CCR, /*TRI=*/nullptr))
-      return false;
-    if (mi.definesRegister(M68k::CCR, /*TRI=*/nullptr))
-      break; // Should have kill-flag - update below.
-  }
-
-  // If we hit the end of the block, check whether CCR is live into a
-  // successor.
-  if (miI == BB->end())
-    for (const auto *SBB : BB->successors())
-      if (SBB->isLiveIn(M68k::CCR))
-        return false;
-
-  // We found a def, or hit the end of the basic block and CCR wasn't live
-  // out. SelectMI should have a kill flag on CCR.
-  SelectItr->addRegisterKilled(M68k::CCR, TRI);
-  return true;
-}
-
 MachineBasicBlock *
 M68kTargetLowering::EmitLoweredSelect(MachineInstr &MI,
                                       MachineBasicBlock *MBB) const {
   const TargetInstrInfo *TII = Subtarget.getInstrInfo();
-  DebugLoc DL = MI.getDebugLoc();
-
-  // To "insert" a SELECT_CC instruction, we actually have to insert the
-  // diamond control-flow pattern.  The incoming instruction knows the
-  // destination vreg to set, the condition code register to branch on, the
-  // true/false values to select between, and a branch opcode to use.
   const BasicBlock *BB = MBB->getBasicBlock();
+  DebugLoc DL = MI.getDebugLoc();
+  MachineFunction *F = MBB->getParent();
   MachineFunction::iterator It = ++MBB->getIterator();
 
-  //  ThisMBB:
-  //  ...
-  //   TrueVal = ...
-  //   cmp ccX, r1, r2
-  //   bcc Copy1MBB
-  //   fallthrough --> Copy0MBB
-  MachineBasicBlock *ThisMBB = MBB;
-  MachineFunction *F = MBB->getParent();
+  Register DestReg = MI.getOperand(0).getReg();
+  Register TrueReg = MI.getOperand(1).getReg();
+  Register FalseReg = MI.getOperand(2).getReg();
 
-  // This code lowers all pseudo-CMOV instructions. Generally it lowers these
-  // as described above, by inserting a MBB, and then making a PHI at the join
-  // point to select the true and false operands of the CMOV in the PHI.
-  //
-  // The code also handles two different cases of multiple CMOV opcodes
-  // in a row.
-  //
-  // Case 1:
-  // In this case, there are multiple CMOVs in a row, all which are based on
-  // the same condition setting (or the exact opposite condition setting).
-  // In this case we can lower all the CMOVs using a single inserted MBB, and
-  // then make a number of PHIs at the join point to model the CMOVs. The only
-  // trickiness here, is that in a case like:
-  //
-  // t2 = CMOV cond1 t1, f1
-  // t3 = CMOV cond1 t2, f2
-  //
-  // when rewriting this into PHIs, we have to perform some renaming on the
-  // temps since you cannot have a PHI operand refer to a PHI result earlier
-  // in the same block.  The "simple" but wrong lowering would be:
-  //
-  // t2 = PHI t1(BB1), f1(BB2)
-  // t3 = PHI t2(BB1), f2(BB2)
-  //
-  // but clearly t2 is not defined in BB1, so that is incorrect. The proper
-  // renaming is to note that on the path through BB1, t2 is really just a
-  // copy of t1, and do that renaming, properly generating:
-  //
-  // t2 = PHI t1(BB1), f1(BB2)
-  // t3 = PHI t1(BB1), f2(BB2)
-  //
-  // Case 2, we lower cascaded CMOVs such as
-  //
-  //   (CMOV (CMOV F, T, cc1), T, cc2)
-  //
-  // to two successives branches.
-  MachineInstr *CascadedCMOV = nullptr;
-  MachineInstr *LastCMOV = &MI;
-  M68k::CondCode CC = M68k::CondCode(MI.getOperand(3).getImm());
-  M68k::CondCode OppCC = M68k::GetOppositeBranchCondition(CC);
-  MachineBasicBlock::iterator NextMIIt =
-      std::next(MachineBasicBlock::iterator(MI));
-
-  // Check for case 1, where there are multiple CMOVs with the same condition
-  // first.  Of the two cases of multiple CMOV lowerings, case 1 reduces the
-  // number of jumps the most.
-
-  if (isCMOVPseudo(MI)) {
-    // See if we have a string of CMOVS with the same condition.
-    while (NextMIIt != MBB->end() && isCMOVPseudo(*NextMIIt) &&
-           (NextMIIt->getOperand(3).getImm() == CC ||
-            NextMIIt->getOperand(3).getImm() == OppCC)) {
-      LastCMOV = &*NextMIIt;
-      ++NextMIIt;
-    }
-  }
-
-  // This checks for case 2, but only do this if we didn't already find
-  // case 1, as indicated by LastCMOV == MI.
-  if (LastCMOV == &MI && NextMIIt != MBB->end() &&
-      NextMIIt->getOpcode() == MI.getOpcode() &&
-      NextMIIt->getOperand(2).getReg() == MI.getOperand(2).getReg() &&
-      NextMIIt->getOperand(1).getReg() == MI.getOperand(0).getReg() &&
-      NextMIIt->getOperand(1).isKill()) {
-    CascadedCMOV = &*NextMIIt;
-  }
-
-  MachineBasicBlock *Jcc1MBB = nullptr;
-
-  // If we have a cascaded CMOV, we lower it to two successive branches to
-  // the same block.  CCR is used by both, so mark it as live in the second.
-  if (CascadedCMOV) {
-    Jcc1MBB = F->CreateMachineBasicBlock(BB);
-    F->insert(It, Jcc1MBB);
-    Jcc1MBB->addLiveIn(M68k::CCR);
-  }
-
-  MachineBasicBlock *Copy0MBB = F->CreateMachineBasicBlock(BB);
+  MachineBasicBlock *TrueMBB = F->CreateMachineBasicBlock(BB);
+  MachineBasicBlock *FalseMBB = F->CreateMachineBasicBlock(BB);
   MachineBasicBlock *SinkMBB = F->CreateMachineBasicBlock(BB);
-  F->insert(It, Copy0MBB);
+  F->insert(It, TrueMBB);
+  F->insert(It, FalseMBB);
   F->insert(It, SinkMBB);
 
   // Set the call frame size on entry to the new basic blocks.
   unsigned CallFrameSize = TII->getCallFrameSizeAt(MI);
-  Copy0MBB->setCallFrameSize(CallFrameSize);
+  TrueMBB->setCallFrameSize(CallFrameSize);
+  FalseMBB->setCallFrameSize(CallFrameSize);
   SinkMBB->setCallFrameSize(CallFrameSize);
 
-  // If the CCR register isn't dead in the terminator, then claim that it's
-  // live into the sink and copy blocks.
-  const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
-
-  MachineInstr *LastCCRSUser = CascadedCMOV ? CascadedCMOV : LastCMOV;
-  if (!LastCCRSUser->killsRegister(M68k::CCR, /*TRI=*/nullptr) &&
-      !checkAndUpdateCCRKill(LastCCRSUser, MBB, TRI)) {
-    Copy0MBB->addLiveIn(M68k::CCR);
-    SinkMBB->addLiveIn(M68k::CCR);
-  }
+  BuildMI(SinkMBB, DL, TII->get(M68k::PHI), DestReg)
+      .addReg(TrueReg)
+      .addMBB(TrueMBB)
+      .addReg(FalseReg)
+      .addMBB(FalseMBB);
 
   // Transfer the remainder of MBB and its successor edges to SinkMBB.
-  SinkMBB->splice(SinkMBB->begin(), MBB,
-                  std::next(MachineBasicBlock::iterator(LastCMOV)), MBB->end());
+  SinkMBB->splice(SinkMBB->end(), MBB,
+                  std::next(MachineBasicBlock::iterator(MI)), MBB->end());
   SinkMBB->transferSuccessorsAndUpdatePHIs(MBB);
 
   // Add the true and fallthrough blocks as its successors.
-  if (CascadedCMOV) {
-    // The fallthrough block may be Jcc1MBB, if we have a cascaded CMOV.
-    MBB->addSuccessor(Jcc1MBB);
-
-    // In that case, Jcc1MBB will itself fallthrough the Copy0MBB, and
-    // jump to the SinkMBB.
-    Jcc1MBB->addSuccessor(Copy0MBB);
-    Jcc1MBB->addSuccessor(SinkMBB);
-  } else {
-    MBB->addSuccessor(Copy0MBB);
-  }
-
-  // The true block target of the first (or only) branch is always SinkMBB.
-  MBB->addSuccessor(SinkMBB);
+  MBB->addSuccessor(TrueMBB);
+  MBB->addSuccessor(FalseMBB);
 
   // Create the conditional branch instruction.
-  unsigned Opc = M68k::GetCondBranchFromCond(CC);
-  BuildMI(MBB, DL, TII->get(Opc)).addMBB(SinkMBB);
+  BuildMI(MBB, DL, TII->get(M68k::BRCOND))
+    .addReg(MI.getOperand(3).getReg())
+    .addMBB(TrueMBB);
+  BuildMI(MBB, DL, TII->get(M68k::BRA8))
+    .addMBB(FalseMBB);
 
-  if (CascadedCMOV) {
-    unsigned Opc2 = M68k::GetCondBranchFromCond(
-        (M68k::CondCode)CascadedCMOV->getOperand(3).getImm());
-    BuildMI(Jcc1MBB, DL, TII->get(Opc2)).addMBB(SinkMBB);
-  }
+  BuildMI(TrueMBB, DL, TII->get(M68k::BRA8))
+    .addMBB(SinkMBB);
 
-  //  Copy0MBB:
-  //   %FalseValue = ...
-  //   # fallthrough to SinkMBB
-  Copy0MBB->addSuccessor(SinkMBB);
+  BuildMI(FalseMBB, DL, TII->get(M68k::BRA8))
+    .addMBB(SinkMBB);
 
-  //  SinkMBB:
-  //   %Result = phi [ %FalseValue, Copy0MBB ], [ %TrueValue, ThisMBB ]
-  //  ...
-  MachineBasicBlock::iterator MIItBegin = MachineBasicBlock::iterator(MI);
-  MachineBasicBlock::iterator MIItEnd =
-      std::next(MachineBasicBlock::iterator(LastCMOV));
-  MachineBasicBlock::iterator SinkInsertionPoint = SinkMBB->begin();
-  DenseMap<unsigned, std::pair<unsigned, unsigned>> RegRewriteTable;
-  MachineInstrBuilder MIB;
+  TrueMBB->addSuccessor(SinkMBB);
+  FalseMBB->addSuccessor(SinkMBB);
 
-  // As we are creating the PHIs, we have to be careful if there is more than
-  // one.  Later CMOVs may reference the results of earlier CMOVs, but later
-  // PHIs have to reference the individual true/false inputs from earlier PHIs.
-  // That also means that PHI construction must work forward from earlier to
-  // later, and that the code must maintain a mapping from earlier PHI's
-  // destination registers, and the registers that went into the PHI.
-
-  for (MachineBasicBlock::iterator MIIt = MIItBegin; MIIt != MIItEnd; ++MIIt) {
-    Register DestReg = MIIt->getOperand(0).getReg();
-    Register Op1Reg = MIIt->getOperand(1).getReg();
-    Register Op2Reg = MIIt->getOperand(2).getReg();
-
-    // If this CMOV we are generating is the opposite condition from
-    // the jump we generated, then we have to swap the operands for the
-    // PHI that is going to be generated.
-    if (MIIt->getOperand(3).getImm() == OppCC)
-      std::swap(Op1Reg, Op2Reg);
-
-    if (RegRewriteTable.find(Op1Reg) != RegRewriteTable.end())
-      Op1Reg = RegRewriteTable[Op1Reg].first;
-
-    if (RegRewriteTable.find(Op2Reg) != RegRewriteTable.end())
-      Op2Reg = RegRewriteTable[Op2Reg].second;
-
-    MIB =
-        BuildMI(*SinkMBB, SinkInsertionPoint, DL, TII->get(M68k::PHI), DestReg)
-            .addReg(Op1Reg)
-            .addMBB(Copy0MBB)
-            .addReg(Op2Reg)
-            .addMBB(ThisMBB);
-
-    // Add this PHI to the rewrite table.
-    RegRewriteTable[DestReg] = std::make_pair(Op1Reg, Op2Reg);
-  }
-
-  // If we have a cascaded CMOV, the second Jcc provides the same incoming
-  // value as the first Jcc (the True operand of the SELECT_CC/CMOV nodes).
-  if (CascadedCMOV) {
-    MIB.addReg(MI.getOperand(2).getReg()).addMBB(Jcc1MBB);
-    // Copy the PHI result to the register defined by the second CMOV.
-    BuildMI(*SinkMBB, std::next(MachineBasicBlock::iterator(MIB.getInstr())),
-            DL, TII->get(TargetOpcode::COPY),
-            CascadedCMOV->getOperand(0).getReg())
-        .addReg(MI.getOperand(0).getReg());
-    CascadedCMOV->eraseFromParent();
-  }
-
-  // Now remove the CMOV(s).
-  for (MachineBasicBlock::iterator MIIt = MIItBegin; MIIt != MIItEnd;)
-    (MIIt++)->eraseFromParent();
-
+  MI.eraseFromParent();
   return SinkMBB;
 }
 
@@ -3546,119 +2532,19 @@ SDValue M68kTargetLowering::LowerShiftRightParts(SDValue Op, SelectionDAG &DAG,
 // DAG Combine
 //===----------------------------------------------------------------------===//
 
-static SDValue getSETCC(M68k::CondCode Cond, SDValue CCR, const SDLoc &dl,
-                        SelectionDAG &DAG) {
-  return DAG.getNode(M68kISD::SETCC, dl, MVT::i8,
-                     DAG.getConstant(Cond, dl, MVT::i8), CCR);
-}
-// When legalizing carry, we create carries via add X, -1
-// If that comes from an actual carry, via setcc, we use the
-// carry directly.
-static SDValue combineCarryThroughADD(SDValue CCR) {
-  if (CCR.getOpcode() == M68kISD::ADD) {
-    if (isAllOnesConstant(CCR.getOperand(1))) {
-      SDValue Carry = CCR.getOperand(0);
-      while (Carry.getOpcode() == ISD::TRUNCATE ||
-             Carry.getOpcode() == ISD::ZERO_EXTEND ||
-             Carry.getOpcode() == ISD::SIGN_EXTEND ||
-             Carry.getOpcode() == ISD::ANY_EXTEND ||
-             (Carry.getOpcode() == ISD::AND &&
-              isOneConstant(Carry.getOperand(1))))
-        Carry = Carry.getOperand(0);
-      if (Carry.getOpcode() == M68kISD::SETCC ||
-          Carry.getOpcode() == M68kISD::SETCC_CARRY) {
-        if (Carry.getConstantOperandVal(0) == M68k::COND_CS)
-          return Carry.getOperand(1);
-      }
-    }
-  }
-
-  return SDValue();
-}
-
-/// Optimize a CCR definition used according to the condition code \p CC into
-/// a simpler CCR value, potentially returning a new \p CC and replacing uses
-/// of chain values.
-static SDValue combineSetCCCCR(SDValue CCR, M68k::CondCode &CC,
-                               SelectionDAG &DAG,
-                               const M68kSubtarget &Subtarget) {
-  if (CC == M68k::COND_CS)
-    if (SDValue Flags = combineCarryThroughADD(CCR))
-      return Flags;
-
-  return SDValue();
-}
-
-// Optimize  RES = M68kISD::SETCC CONDCODE, CCR_INPUT
-static SDValue combineM68kSetCC(SDNode *N, SelectionDAG &DAG,
-                                const M68kSubtarget &Subtarget) {
-  SDLoc DL(N);
-  M68k::CondCode CC = M68k::CondCode(N->getConstantOperandVal(0));
-  SDValue CCR = N->getOperand(1);
-
-  // Try to simplify the CCR and condition code operands.
-  if (SDValue Flags = combineSetCCCCR(CCR, CC, DAG, Subtarget))
-    return getSETCC(CC, Flags, DL, DAG);
-
-  return SDValue();
-}
-static SDValue combineM68kBrCond(SDNode *N, SelectionDAG &DAG,
-                                 const M68kSubtarget &Subtarget) {
-  SDLoc DL(N);
-  M68k::CondCode CC = M68k::CondCode(N->getConstantOperandVal(2));
-  SDValue CCR = N->getOperand(3);
-
-  // Try to simplify the CCR and condition code operands.
-  // Make sure to not keep references to operands, as combineSetCCCCR can
-  // RAUW them under us.
-  if (SDValue Flags = combineSetCCCCR(CCR, CC, DAG, Subtarget)) {
-    SDValue Cond = DAG.getConstant(CC, DL, MVT::i8);
-    return DAG.getNode(M68kISD::BRCOND, DL, N->getVTList(), N->getOperand(0),
-                       N->getOperand(1), Cond, Flags);
-  }
-
-  return SDValue();
-}
-
-static SDValue combineSUBX(SDNode *N, SelectionDAG &DAG) {
-  if (SDValue Flags = combineCarryThroughADD(N->getOperand(2))) {
-    MVT VT = N->getSimpleValueType(0);
-    SDVTList VTs = DAG.getVTList(VT, MVT::i32);
-    return DAG.getNode(M68kISD::SUBX, SDLoc(N), VTs, N->getOperand(0),
-                       N->getOperand(1), Flags);
-  }
-
-  return SDValue();
-}
-
-// Optimize RES, CCR = M68kISD::ADDX LHS, RHS, CCR
-static SDValue combineADDX(SDNode *N, SelectionDAG &DAG,
-                           TargetLowering::DAGCombinerInfo &DCI) {
-  if (SDValue Flags = combineCarryThroughADD(N->getOperand(2))) {
-    MVT VT = N->getSimpleValueType(0);
-    SDVTList VTs = DAG.getVTList(VT, MVT::i32);
-    return DAG.getNode(M68kISD::ADDX, SDLoc(N), VTs, N->getOperand(0),
-                       N->getOperand(1), Flags);
-  }
-
-  return SDValue();
-}
-
 SDValue M68kTargetLowering::PerformDAGCombine(SDNode *N,
                                               DAGCombinerInfo &DCI) const {
-  SelectionDAG &DAG = DCI.DAG;
   switch (N->getOpcode()) {
-  case M68kISD::SUBX:
-    return combineSUBX(N, DAG);
-  case M68kISD::ADDX:
-    return combineADDX(N, DAG, DCI);
-  case M68kISD::SETCC:
-    return combineM68kSetCC(N, DAG, Subtarget);
-  case M68kISD::BRCOND:
-    return combineM68kBrCond(N, DAG, Subtarget);
+    default:
+      return SDValue();
+    case M68kISD::CMOV:
+      SelectionDAG &DAG = DCI.DAG;
+      SDValue TrueVal = N->getOperand(0);
+      SDValue FalseVal = N->getOperand(1);
+      SDValue Bool = N->getOperand(2);
+      SDValue SimpleOp = DAG.simplifySelect(Bool, TrueVal, FalseVal);
+      return SimpleOp ? SimpleOp : SDValue();
   }
-
-  return SDValue();
 }
 
 CCAssignFn *M68kTargetLowering::getCCAssignFn(CallingConv::ID CC, bool Return,

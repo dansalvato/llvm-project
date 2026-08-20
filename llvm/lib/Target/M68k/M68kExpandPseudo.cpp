@@ -282,6 +282,56 @@ bool M68kExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
     MBB.erase(MBBI);
     return true;
   }
+
+  case M68k::BRCOND: {
+    auto BoolReg = MBBI->getOperand(0).getReg();
+    auto Dest = MBBI->getOperand(1);
+
+    // First, see if we can emit bcc without an extra compare. We can do so if
+    // nothing between the scc and this instruction defines/clobbers CCR.
+    // Also, we can erase scc if this instruction kills the bool register and
+    // nothing else reads it.
+    MachineBasicBlock::iterator I = MBBI, Scc = nullptr;
+    bool EraseScc = MBBI->killsRegister(BoolReg, TRI);
+    while (I != MBB.begin()) {
+      --I;
+      if (I->definesRegister(BoolReg, TRI)) {
+        // We found the instruction that defines our bool register. If it's a
+        // scc, we adopt that condition code into our branch. Otherwise, we
+        // branch if the bool is non-zero (bne).
+        unsigned BccOpc = M68k::Bne8;
+        if (M68k::IsSETCC(I->getOpcode())) {
+          BccOpc = M68k::GetCondBranchFromScc(I->getOpcode());
+          if (EraseScc)
+            MBB.erase(I);
+          else
+            I->clearRegisterKills(M68k::CCR, TRI);
+        }
+        // If it's not a scc, the instruction has to define CCR when producing
+        // the bool.
+        else if (!I->definesRegister(M68k::CCR, TRI))
+          break;
+        BuildMI(MBB, MBBI, DL, TII->get(BccOpc))->addOperand(Dest);
+        MBB.erase(MBBI);
+        return true;
+      }
+      if (I->definesRegister(M68k::CCR, TRI))
+        break;
+      if (I->readsRegister(BoolReg, TRI))
+        EraseScc = false;
+    }
+
+    // The above conditions failed, so we'll keep the boolean value and emit a
+    // comapre and branch on it.
+    BuildMI(MBB, MBBI, DL, TII->get(M68k::CMP8di))
+      .addImm(0)
+      .addReg(BoolReg);
+    BuildMI(MBB, MBBI, DL, TII->get(M68k::Bne8))
+      ->addOperand(Dest);
+    MBB.erase(MBBI);
+    return true;
+  }
+
   }
   llvm_unreachable("Previous switch has a fallthrough?");
 }

@@ -5,7 +5,6 @@ define i32 @test1(ptr %y) nounwind {
 ; CHECK-LABEL: test1:
 ; CHECK:       ; %bb.0:
 ; CHECK-NEXT:    move.l (4,%sp), %a0
-; CHECK-NEXT:    cmpi.l #0, (%a0)
 ; CHECK-NEXT:    beq .LBB0_2
 ; CHECK-NEXT:  ; %bb.1: ; %cond_false
 ; CHECK-NEXT:    moveq #0, %d0
@@ -29,8 +28,7 @@ define i32 @test2(ptr %y) nounwind {
 ; CHECK:       ; %bb.0:
 ; CHECK-NEXT:    move.l (4,%sp), %a0
 ; CHECK-NEXT:    move.l (%a0), %d0
-; CHECK-NEXT:    and.l #536870911, %d0
-; CHECK-NEXT:    cmpi.l #0, %d0
+; CHECK-NEXT:    lsl.l #3, %d0
 ; CHECK-NEXT:    beq .LBB1_2
 ; CHECK-NEXT:  ; %bb.1: ; %cond_false
 ; CHECK-NEXT:    moveq #0, %d0
@@ -55,8 +53,7 @@ define i8 @test2b(ptr %y) nounwind {
 ; CHECK:       ; %bb.0:
 ; CHECK-NEXT:    move.l (4,%sp), %a0
 ; CHECK-NEXT:    move.b (%a0), %d0
-; CHECK-NEXT:    and.b #31, %d0
-; CHECK-NEXT:    cmpi.b #0, %d0
+; CHECK-NEXT:    lsl.b #3, %d0
 ; CHECK-NEXT:    beq .LBB2_2
 ; CHECK-NEXT:  ; %bb.1: ; %cond_false
 ; CHECK-NEXT:    clr.b %d0
@@ -79,8 +76,9 @@ cond_true:  ; preds = %0
 define i64 @test3(i64 %x) nounwind {
 ; CHECK-LABEL: test3:
 ; CHECK:       ; %bb.0:
-; CHECK-NEXT:    move.l (8,%sp), %d0
-; CHECK-NEXT:    or.l (4,%sp), %d0
+; CHECK-NEXT:    move.l (4,%sp), %d0
+; CHECK-NEXT:    move.l (8,%sp), %d1
+; CHECK-NEXT:    or.l %d0, %d1
 ; CHECK-NEXT:    seq %d0
 ; CHECK-NEXT:    moveq #0, %d1
 ; CHECK-NEXT:    move.b %d0, %d1
@@ -97,11 +95,13 @@ define i64 @test4(i64 %x) nounwind {
 ; CHECK:       ; %bb.0:
 ; CHECK-NEXT:    suba.l #4, %sp
 ; CHECK-NEXT:    movem.l %d2, (0,%sp) ; 8-byte Folded Spill
-; CHECK-NEXT:    move.l (8,%sp), %d1
+; CHECK-NEXT:    move.l (12,%sp), %d0
+; CHECK-NEXT:    sub.l #1, %d0
+; CHECK-NEXT:    scs %d1
+; CHECK-NEXT:    move.l (8,%sp), %d2
 ; CHECK-NEXT:    moveq #0, %d0
-; CHECK-NEXT:    move.l (12,%sp), %d2
-; CHECK-NEXT:    sub.l #1, %d2
-; CHECK-NEXT:    subx.l %d0, %d1
+; CHECK-NEXT:    add.b #-1, %d1
+; CHECK-NEXT:    subx.l %d0, %d2
 ; CHECK-NEXT:    slt %d1
 ; CHECK-NEXT:    and.l #255, %d1
 ; CHECK-NEXT:    and.l #1, %d1
@@ -117,8 +117,9 @@ define i32 @test6() nounwind align 2 {
 ; CHECK-LABEL: test6:
 ; CHECK:       ; %bb.0:
 ; CHECK-NEXT:    suba.l #20, %sp
-; CHECK-NEXT:    move.l (12,%sp), %d0
-; CHECK-NEXT:    or.l (8,%sp), %d0
+; CHECK-NEXT:    move.l (8,%sp), %d0
+; CHECK-NEXT:    move.l (12,%sp), %d1
+; CHECK-NEXT:    or.l %d0, %d1
 ; CHECK-NEXT:    beq .LBB5_1
 ; CHECK-NEXT:  ; %bb.2: ; %F
 ; CHECK-NEXT:    moveq #0, %d0
@@ -157,8 +158,7 @@ entry:
 define i32 @test8(i64 %res) nounwind {
 ; CHECK-LABEL: test8:
 ; CHECK:       ; %bb.0: ; %entry
-; CHECK-NEXT:    move.l (4,%sp), %d0
-; CHECK-NEXT:    sub.l #3, %d0
+; CHECK-NEXT:    cmpi.l #3, (4,%sp)
 ; CHECK-NEXT:    scs %d0
 ; CHECK-NEXT:    and.l #255, %d0
 ; CHECK-NEXT:    and.l #1, %d0
@@ -174,7 +174,7 @@ define i32 @test11(i64 %l) nounwind {
 ; CHECK:       ; %bb.0: ; %entry
 ; CHECK-NEXT:    move.l (4,%sp), %d0
 ; CHECK-NEXT:    and.l #-32768, %d0
-; CHECK-NEXT:    sub.l #32768, %d0
+; CHECK-NEXT:    cmpi.l #32768, %d0
 ; CHECK-NEXT:    seq %d0
 ; CHECK-NEXT:    and.l #255, %d0
 ; CHECK-NEXT:    and.l #1, %d0
@@ -191,15 +191,14 @@ define i32 @test13(i32 %mask, i32 %base, i32 %intra) {
 ; CHECK:         .cfi_startproc
 ; CHECK-NEXT:  ; %bb.0:
 ; CHECK-NEXT:    move.l (4,%sp), %d0
-; CHECK-NEXT:    and.l #8, %d0
-; CHECK-NEXT:    cmpi.l #0, %d0
-; CHECK-NEXT:    bne .LBB9_1
-; CHECK-NEXT:  ; %bb.2:
-; CHECK-NEXT:    lea (8,%sp), %a0
+; CHECK-NEXT:    btst #3, %d0
+; CHECK-NEXT:    beq .LBB9_2
+; CHECK-NEXT:  ; %bb.1:
+; CHECK-NEXT:    lea (12,%sp), %a0
 ; CHECK-NEXT:    move.l (%a0), %d0
 ; CHECK-NEXT:    rts
-; CHECK-NEXT:  .LBB9_1:
-; CHECK-NEXT:    lea (12,%sp), %a0
+; CHECK-NEXT:  .LBB9_2:
+; CHECK-NEXT:    lea (8,%sp), %a0
 ; CHECK-NEXT:    move.l (%a0), %d0
 ; CHECK-NEXT:    rts
   %and = and i32 %mask, 8
@@ -214,14 +213,13 @@ define i32 @test14(i32 %mask, i32 %base, i32 %intra) #0 {
 ; CHECK-NEXT:  ; %bb.0:
 ; CHECK-NEXT:    move.l (4,%sp), %d0
 ; CHECK-NEXT:    lsr.l #7, %d0
-; CHECK-NEXT:    cmpi.l #0, %d0
-; CHECK-NEXT:    bpl .LBB10_1
-; CHECK-NEXT:  ; %bb.2:
-; CHECK-NEXT:    lea (8,%sp), %a0
+; CHECK-NEXT:    bmi .LBB10_2
+; CHECK-NEXT:  ; %bb.1:
+; CHECK-NEXT:    lea (12,%sp), %a0
 ; CHECK-NEXT:    move.l (%a0), %d0
 ; CHECK-NEXT:    rts
-; CHECK-NEXT:  .LBB10_1:
-; CHECK-NEXT:    lea (12,%sp), %a0
+; CHECK-NEXT:  .LBB10_2:
+; CHECK-NEXT:    lea (8,%sp), %a0
 ; CHECK-NEXT:    move.l (%a0), %d0
 ; CHECK-NEXT:    rts
   %s = lshr i32 %mask, 7
@@ -237,8 +235,7 @@ define zeroext i1 @test15(i32 %bf.load, i32 %n) {
 ; CHECK-NEXT:    moveq #16, %d0
 ; CHECK-NEXT:    move.l (4,%sp), %d1
 ; CHECK-NEXT:    lsr.l %d0, %d1
-; CHECK-NEXT:    move.l %d1, %d0
-; CHECK-NEXT:    sub.l (8,%sp), %d0
+; CHECK-NEXT:    cmp.l (8,%sp), %d1
 ; CHECK-NEXT:    scc %d0
 ; CHECK-NEXT:    cmpi.l #0, %d1
 ; CHECK-NEXT:    seq %d1
@@ -295,19 +292,20 @@ define void @test20(i32 %bf.load, i8 %x1, ptr %b_addr) {
 ; CHECK-NEXT:    suba.l #4, %sp
 ; CHECK-NEXT:    .cfi_def_cfa_offset -8
 ; CHECK-NEXT:    movem.l %d2, (0,%sp) ; 8-byte Folded Spill
-; CHECK-NEXT:    move.l #16777215, %d0
-; CHECK-NEXT:    and.l (8,%sp), %d0
+; CHECK-NEXT:    move.l (8,%sp), %d0
+; CHECK-NEXT:    move.l %d0, %d1
+; CHECK-NEXT:    and.l #16777215, %d1
 ; CHECK-NEXT:    sne %d1
 ; CHECK-NEXT:    and.l #255, %d1
 ; CHECK-NEXT:    and.l #1, %d1
 ; CHECK-NEXT:    moveq #0, %d2
 ; CHECK-NEXT:    move.b (15,%sp), %d2
-; CHECK-NEXT:    add.l %d1, %d2
+; CHECK-NEXT:    add.l %d2, %d1
 ; CHECK-NEXT:    sne %d1
 ; CHECK-NEXT:    and.b #1, %d1
 ; CHECK-NEXT:    move.l (16,%sp), %a0
 ; CHECK-NEXT:    move.b %d1, (%a0)
-; CHECK-NEXT:    cmpi.l #0, %d0
+; CHECK-NEXT:    lsl.l #8, %d0
 ; CHECK-NEXT:    sne %d0
 ; CHECK-NEXT:    and.b #1, %d0
 ; CHECK-NEXT:    lea (d,%pc), %a0

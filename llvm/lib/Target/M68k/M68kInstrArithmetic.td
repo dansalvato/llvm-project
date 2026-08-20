@@ -394,7 +394,7 @@ defm XOR : MxBiArOp_DF_EAd<"eor", MxXor, 0xB, 0xA>;
 // CMP
 //===----------------------------------------------------------------------===//
 
-let Defs = [CCR] in {
+let Defs = [CCR], isCompare = 1 in {
 class MxCmp_RR<MxType LHS_TYPE, MxType RHS_TYPE = LHS_TYPE>
     : MxInst<(outs), (ins LHS_TYPE.ROp:$lhs, RHS_TYPE.ROp:$rhs),
              "cmp."#RHS_TYPE.Prefix#"\t$lhs, $rhs",

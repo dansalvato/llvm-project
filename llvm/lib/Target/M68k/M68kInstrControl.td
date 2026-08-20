@@ -183,6 +183,10 @@ class MxBcc<string cc, Operand TARGET, dag disp_8, dag disp_16_32>
   let Predicates = !if(!eq(TARGET, MxBrTarget32), [AtLeastM68020], []);
 }
 
+let isBranch = 1, isTerminator = 1, isBarrier = 1 in
+def BRCOND
+  : MxPseudo<(outs), (ins MxDRD8:$bool, MxBrTarget8:$dest), [(brcond i8:$bool, bb:$dest)]>;
+
 foreach cc = [ "cc", "ls", "lt", "eq", "mi", "ne", "ge",
                "cs", "pl", "gt", "hi", "vc", "le", "vs"] in {
   def B#cc#"8"
@@ -437,3 +441,19 @@ def BKPT : MxInst<(outs), (ins MxBkptimm:$vect), "bkpt\t$vect", []> {
 def ILLEGAL : MxInst<(outs), (ins), "illegal", []> {
   let Inst = (descend 0b0100, 0b1010, 0b1111, 0b1100);
 }
+
+// Test for a known single bit number in $src.
+// Note for i8/i16 immediates, ANDI mask is faster, so this matches i32 only.
+foreach i = {0-31} in
+  def : Pat<(MxCmp 0, (and i32:$src, !shl(1, i))), (BTST32di MxDRD32:$src, i)>;
+
+// Test for $bitno in $src (shift 1 left by $bitno and AND with $src).
+// Often used to test multiple switch cases that lead to the same destination
+def : Pat<(MxCmp 0, (and (shl 1, i32:$bitno), i32:$src)), (BTST32dd MxDRD32:$src, MxDRD32:$bitno)>;
+def : Pat<(MxCmp 0, (and (shl 1, i16:$bitno), i16:$src)), (BTST16dd MxDRD16:$src, MxDRD16:$bitno)>;
+def : Pat<(MxCmp 0, (and (shl 1, i8:$bitno), i8:$src)), (BTST8dd MxDRD8:$src, MxDRD8:$bitno)>;
+
+// Test for $bitno in $src (shift $src right by $bitno and AND with 1).
+def : Pat<(MxCmp 0, (and (srl i8:$src, i8:$bitno), 1)), (BTST8dd MxDRD8:$src, MxDRD8:$bitno)>;
+def : Pat<(MxCmp 0, (and (srl i16:$src, i16:$bitno), 1)), (BTST16dd MxDRD16:$src, MxDRD16:$bitno)>;
+def : Pat<(MxCmp 0, (and (srl i32:$src, i32:$bitno), 1)), (BTST32dd MxDRD32:$src, MxDRD32:$bitno)>;

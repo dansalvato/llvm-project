@@ -60,11 +60,10 @@ def MxSDT_CmpTest : SDTypeProfile<1, 2, [
    /* Ops */ SDTCisSameAs<1, 2>
 ]>;
 
-def MxSDT_Cmov : SDTypeProfile<1, 4, [
+def MxSDT_Cmov : SDTypeProfile<1, 3, [
   /*  ARG */ SDTCisSameAs<0, 1>,
   /*  ARG */ SDTCisSameAs<1, 2>,
   /* Cond */ SDTCisVT<3, i8>,
-  /*  CCR */ SDTCisVT<4, i8>
 ]>;
 
 def MxSDT_BrCond : SDTypeProfile<0, 3, [

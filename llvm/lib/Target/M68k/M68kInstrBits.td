@@ -98,6 +98,12 @@ multiclass MxBIT<string MN, bits<3> OP, bits<3> OPI> {
   // Register Bit manipulation limited to 32 bits only
   def NAME#32dd : MxBIT_RR<MN, OP, MxType32d>;
   def NAME#32di : MxBIT_RI<MN, OPI, MxType32d>;
+  let isCodeGenOnly = 1 in {
+    def NAME#16dd : MxBIT_RR<MN, OP, MxType16d>;
+    def NAME#8dd : MxBIT_RR<MN, OP, MxType8d>;
+    def NAME#16di : MxBIT_RI<MN, OPI, MxType16d>;
+    def NAME#8di : MxBIT_RI<MN, OPI, MxType8d>;
+  }
 
   // Memory Bit manipulation limited to 8 bits only
   def NAME#8jd : MxBIT_MR<MN, OP, MxType8d,

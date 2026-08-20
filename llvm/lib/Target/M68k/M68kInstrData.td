@@ -647,9 +647,11 @@ foreach EXT = ["S", "Z"] in {
 /// any value extension, they just load a smaller register into the lower part
 /// of another register if operands' real registers are different or does
 /// nothing if they are the same.
-def MOVXd16d8  : MxPseudoMove_RR<MxType16d,  MxType8d>;
-def MOVXd32d8  : MxPseudoMove_RR<MxType32d,  MxType8d>;
-def MOVXd32d16 : MxPseudoMove_RR<MxType32r, MxType16r>;
+let isAsCheapAsAMove = 1 in {
+  def MOVXd16d8  : MxPseudoMove_RR<MxType16d,  MxType8d>;
+  def MOVXd32d8  : MxPseudoMove_RR<MxType32d,  MxType8d>;
+  def MOVXd32d16 : MxPseudoMove_RR<MxType32r, MxType16r>;
+}
 
 //===----------------------------------------------------------------------===//
 // Extend/Truncate Patterns

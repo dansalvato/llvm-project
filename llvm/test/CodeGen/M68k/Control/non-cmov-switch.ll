@@ -6,51 +6,35 @@ define internal void @select_i32(i32 %self, ptr nonnull %value) {
 ; M68000-LABEL: select_i32:
 ; M68000:         .cfi_startproc
 ; M68000-NEXT:  ; %bb.0: ; %start
-; M68000-NEXT:    suba.l #4, %sp
-; M68000-NEXT:    .cfi_def_cfa_offset -8
-; M68000-NEXT:    movem.l %d2, (0,%sp) ; 8-byte Folded Spill
-; M68000-NEXT:    cmpi.l #0, (8,%sp)
-; M68000-NEXT:    move.w %sr, %d2
+; M68000-NEXT:    move.l (8,%sp), %d0
+; M68000-NEXT:    cmpi.l #0, (4,%sp)
 ; M68000-NEXT:    sne %d1
-; M68000-NEXT:    move.l (12,%sp), %d0
-; M68000-NEXT:    move.w %d2, %ccr
 ; M68000-NEXT:    bne .LBB0_2
 ; M68000-NEXT:  ; %bb.1: ; %start
 ; M68000-NEXT:    and.l #255, %d1
 ; M68000-NEXT:    and.l #1, %d1
-; M68000-NEXT:    cmpi.l #0, %d1
 ; M68000-NEXT:    bne .LBB0_3
 ; M68000-NEXT:  .LBB0_2: ; %null
 ; M68000-NEXT:    suba.l %a0, %a0
 ; M68000-NEXT:    move.l %d0, (%a0)
 ; M68000-NEXT:  .LBB0_3: ; %exit
-; M68000-NEXT:    movem.l (0,%sp), %d2 ; 8-byte Folded Reload
-; M68000-NEXT:    adda.l #4, %sp
 ; M68000-NEXT:    rts
 ;
 ; M68020-LABEL: select_i32:
 ; M68020:         .cfi_startproc
 ; M68020-NEXT:  ; %bb.0: ; %start
-; M68020-NEXT:    suba.l #4, %sp
-; M68020-NEXT:    .cfi_def_cfa_offset -8
-; M68020-NEXT:    movem.l %d2, (0,%sp) ; 8-byte Folded Spill
-; M68020-NEXT:    cmpi.l #0, (8,%sp)
-; M68020-NEXT:    move.w %ccr, %d2
+; M68020-NEXT:    move.l (8,%sp), %d0
+; M68020-NEXT:    cmpi.l #0, (4,%sp)
 ; M68020-NEXT:    sne %d1
-; M68020-NEXT:    move.l (12,%sp), %d0
-; M68020-NEXT:    move.w %d2, %ccr
 ; M68020-NEXT:    bne .LBB0_2
 ; M68020-NEXT:  ; %bb.1: ; %start
 ; M68020-NEXT:    and.l #255, %d1
 ; M68020-NEXT:    and.l #1, %d1
-; M68020-NEXT:    cmpi.l #0, %d1
 ; M68020-NEXT:    bne .LBB0_3
 ; M68020-NEXT:  .LBB0_2: ; %null
 ; M68020-NEXT:    suba.l %a0, %a0
 ; M68020-NEXT:    move.l %d0, (%a0)
 ; M68020-NEXT:  .LBB0_3: ; %exit
-; M68020-NEXT:    movem.l (0,%sp), %d2 ; 8-byte Folded Reload
-; M68020-NEXT:    adda.l #4, %sp
 ; M68020-NEXT:    rts
 start:
   %2 = icmp eq i32 %self, 0
@@ -76,51 +60,35 @@ define internal void @select_i16(i16 %self, ptr nonnull %value) {
 ; M68000-LABEL: select_i16:
 ; M68000:         .cfi_startproc
 ; M68000-NEXT:  ; %bb.0: ; %start
-; M68000-NEXT:    suba.l #4, %sp
-; M68000-NEXT:    .cfi_def_cfa_offset -8
-; M68000-NEXT:    movem.l %d2, (0,%sp) ; 8-byte Folded Spill
-; M68000-NEXT:    cmpi.w #0, (10,%sp)
-; M68000-NEXT:    move.w %sr, %d2
+; M68000-NEXT:    move.l (8,%sp), %d0
+; M68000-NEXT:    cmpi.w #0, (6,%sp)
 ; M68000-NEXT:    sne %d1
-; M68000-NEXT:    move.l (12,%sp), %d0
-; M68000-NEXT:    move.w %d2, %ccr
 ; M68000-NEXT:    bne .LBB1_2
 ; M68000-NEXT:  ; %bb.1: ; %start
 ; M68000-NEXT:    and.l #255, %d1
 ; M68000-NEXT:    and.w #1, %d1
-; M68000-NEXT:    cmpi.w #0, %d1
 ; M68000-NEXT:    bne .LBB1_3
 ; M68000-NEXT:  .LBB1_2: ; %null
 ; M68000-NEXT:    suba.l %a0, %a0
 ; M68000-NEXT:    move.l %d0, (%a0)
 ; M68000-NEXT:  .LBB1_3: ; %exit
-; M68000-NEXT:    movem.l (0,%sp), %d2 ; 8-byte Folded Reload
-; M68000-NEXT:    adda.l #4, %sp
 ; M68000-NEXT:    rts
 ;
 ; M68020-LABEL: select_i16:
 ; M68020:         .cfi_startproc
 ; M68020-NEXT:  ; %bb.0: ; %start
-; M68020-NEXT:    suba.l #4, %sp
-; M68020-NEXT:    .cfi_def_cfa_offset -8
-; M68020-NEXT:    movem.l %d2, (0,%sp) ; 8-byte Folded Spill
-; M68020-NEXT:    cmpi.w #0, (10,%sp)
-; M68020-NEXT:    move.w %ccr, %d2
+; M68020-NEXT:    move.l (8,%sp), %d0
+; M68020-NEXT:    cmpi.w #0, (6,%sp)
 ; M68020-NEXT:    sne %d1
-; M68020-NEXT:    move.l (12,%sp), %d0
-; M68020-NEXT:    move.w %d2, %ccr
 ; M68020-NEXT:    bne .LBB1_2
 ; M68020-NEXT:  ; %bb.1: ; %start
 ; M68020-NEXT:    and.l #255, %d1
 ; M68020-NEXT:    and.w #1, %d1
-; M68020-NEXT:    cmpi.w #0, %d1
 ; M68020-NEXT:    bne .LBB1_3
 ; M68020-NEXT:  .LBB1_2: ; %null
 ; M68020-NEXT:    suba.l %a0, %a0
 ; M68020-NEXT:    move.l %d0, (%a0)
 ; M68020-NEXT:  .LBB1_3: ; %exit
-; M68020-NEXT:    movem.l (0,%sp), %d2 ; 8-byte Folded Reload
-; M68020-NEXT:    adda.l #4, %sp
 ; M68020-NEXT:    rts
 start:
   %2 = icmp eq i16 %self, 0
@@ -146,49 +114,33 @@ define internal void @select_i8(i8 %self, ptr nonnull %value) {
 ; M68000-LABEL: select_i8:
 ; M68000:         .cfi_startproc
 ; M68000-NEXT:  ; %bb.0: ; %start
-; M68000-NEXT:    suba.l #4, %sp
-; M68000-NEXT:    .cfi_def_cfa_offset -8
-; M68000-NEXT:    movem.l %d2, (0,%sp) ; 8-byte Folded Spill
-; M68000-NEXT:    cmpi.b #0, (11,%sp)
-; M68000-NEXT:    move.w %sr, %d2
+; M68000-NEXT:    move.l (8,%sp), %d0
+; M68000-NEXT:    cmpi.b #0, (7,%sp)
 ; M68000-NEXT:    sne %d1
-; M68000-NEXT:    move.l (12,%sp), %d0
-; M68000-NEXT:    move.w %d2, %ccr
 ; M68000-NEXT:    bne .LBB2_2
 ; M68000-NEXT:  ; %bb.1: ; %start
 ; M68000-NEXT:    and.b #1, %d1
-; M68000-NEXT:    cmpi.b #0, %d1
 ; M68000-NEXT:    bne .LBB2_3
 ; M68000-NEXT:  .LBB2_2: ; %null
 ; M68000-NEXT:    suba.l %a0, %a0
 ; M68000-NEXT:    move.l %d0, (%a0)
 ; M68000-NEXT:  .LBB2_3: ; %exit
-; M68000-NEXT:    movem.l (0,%sp), %d2 ; 8-byte Folded Reload
-; M68000-NEXT:    adda.l #4, %sp
 ; M68000-NEXT:    rts
 ;
 ; M68020-LABEL: select_i8:
 ; M68020:         .cfi_startproc
 ; M68020-NEXT:  ; %bb.0: ; %start
-; M68020-NEXT:    suba.l #4, %sp
-; M68020-NEXT:    .cfi_def_cfa_offset -8
-; M68020-NEXT:    movem.l %d2, (0,%sp) ; 8-byte Folded Spill
-; M68020-NEXT:    cmpi.b #0, (11,%sp)
-; M68020-NEXT:    move.w %ccr, %d2
+; M68020-NEXT:    move.l (8,%sp), %d0
+; M68020-NEXT:    cmpi.b #0, (7,%sp)
 ; M68020-NEXT:    sne %d1
-; M68020-NEXT:    move.l (12,%sp), %d0
-; M68020-NEXT:    move.w %d2, %ccr
 ; M68020-NEXT:    bne .LBB2_2
 ; M68020-NEXT:  ; %bb.1: ; %start
 ; M68020-NEXT:    and.b #1, %d1
-; M68020-NEXT:    cmpi.b #0, %d1
 ; M68020-NEXT:    bne .LBB2_3
 ; M68020-NEXT:  .LBB2_2: ; %null
 ; M68020-NEXT:    suba.l %a0, %a0
 ; M68020-NEXT:    move.l %d0, (%a0)
 ; M68020-NEXT:  .LBB2_3: ; %exit
-; M68020-NEXT:    movem.l (0,%sp), %d2 ; 8-byte Folded Reload
-; M68020-NEXT:    adda.l #4, %sp
 ; M68020-NEXT:    rts
 start:
   %2 = icmp eq i8 %self, 0

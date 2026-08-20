@@ -105,7 +105,6 @@ define fastcc i1 @test2(i32 %v1, i32 %v2) nounwind {
 ; CHECK-NEXT:    muls.l %d1, %d0
 ; CHECK-NEXT:    svs %d1
 ; CHECK-NEXT:    and.b #1, %d1
-; CHECK-NEXT:    cmpi.b #0, %d1
 ; CHECK-NEXT:    beq .LBB4_2
 ; CHECK-NEXT:  ; %bb.1: ; %overflow
 ; CHECK-NEXT:    lea (no,%pc), %a0

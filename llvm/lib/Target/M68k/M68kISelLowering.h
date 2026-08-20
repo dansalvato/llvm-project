@@ -162,12 +162,9 @@ private:
                            const CCValAssign &VA, ISD::ArgFlagsTy Flags) const;
 
   SDValue LowerXALUO(SDValue Op, SelectionDAG &DAG) const;
-  SDValue LowerToBTST(SDValue And, ISD::CondCode CC, const SDLoc &DL,
-                      SelectionDAG &DAG) const;
   SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSETCCCARRY(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSELECT(SDValue Op, SelectionDAG &DAG) const;
-  SDValue LowerBRCOND(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerADDC_ADDE_SUBC_SUBE(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerJumpTable(SDValue Op, SelectionDAG &DAG) const;
@@ -234,16 +231,6 @@ private:
                                        MachineBasicBlock *MBB) const;
   MachineBasicBlock *EmitLoweredSegAlloca(MachineInstr &MI,
                                           MachineBasicBlock *BB) const;
-
-  /// Emit nodes that will be selected as "test Op0,Op0", or something
-  /// equivalent, for use with the given M68k condition code.
-  SDValue EmitTest(SDValue Op0, unsigned M68kCC, const SDLoc &dl,
-                   SelectionDAG &DAG) const;
-
-  /// Emit nodes that will be selected as "cmp Op0,Op1", or something
-  /// equivalent, for use with the given M68k condition code.
-  SDValue EmitCmp(SDValue Op0, SDValue Op1, unsigned M68kCC, const SDLoc &dl,
-                  SelectionDAG &DAG) const;
 
   /// Check whether the call is eligible for tail call optimization. Targets
   /// that want to do tail call optimization should implement this function.
